@@ -26,13 +26,14 @@ function renderEquipe() {
     : `${staff.length} compte${staff.length > 1 ? 's' : ''} · cliquez sur une personne pour voir sa fiche et ses pièces jointes.`);
   if (!staff.length) return html + emptyState('👥', 'Aucun compte', 'Les comptes apparaîtront ici dès leur création.');
   const order = [ROLES.DIRECTION, ROLES.SECRETAIRE, ROLES.MANAGER, ROLES.EMPLOYE, ROLES.GOUVERNEMENT];
-  const users = [...staff].sort((a, b) => (b.id === CURRENT_USER.id) - (a.id === CURRENT_USER.id) || order.indexOf(a.role) - order.indexOf(b.role) || fullName(a).localeCompare(fullName(b)));
+  const users = [...staff].sort((a, b) => (b.id === CURRENT_USER.id) - (a.id === CURRENT_USER.id) || order.indexOf(a.role) - order.indexOf(b.role) || subRoleOf(a).localeCompare(subRoleOf(b)) || fullName(a).localeCompare(fullName(b)));
   html += `<div class="grid-cards stagger" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">${users.map((u) => {
     const n = DB.attendances.filter((a) => a.userId === u.id).length;
     const k = piecesCount(u);
     return `<article class="emp card lift" tabindex="0" onclick="openEmployeeSheet('${u.id}')" onkeydown="if(event.key==='Enter')openEmployeeSheet('${u.id}')">
       ${avatarHtml(u, 'lg')}<b>${esc(fullName(u))}${u.id === CURRENT_USER.id ? ' <small class="muted">(moi)</small>' : ''}</b>
       <span class="badge ${u.statut === 'Actif' ? 'sun' : 'bad'}">${ROLE_LABEL[u.role]}${u.statut === 'Actif' ? '' : ' · désactivé'}</span>
+      ${subRoleOf(u) ? `<small class="emp-sub">${esc(subRoleOf(u))}</small>` : ''}
       <span class="emp-pieces" title="Pièces jointes">${PIECES.map((p) => `<i class="${(u.pieces && u.pieces[p.id]) || (u.piecesData && u.piecesData[p.id]) ? 'on' : ''}" title="${esc(p.label)}">${p.icon}</i>`).join('')}<small>${k}/${PIECES.length}</small></span>
       <small style="margin-top:2px">${n} service${n > 1 ? 's' : ''}</small>
     </article>`;
@@ -155,7 +156,7 @@ function openEmployeeSheet(userId) {
   }));
   salaries.sort((a, b) => a.numero - b.numero);
   openModal(esc(fullName(u)), `
-    <div class="sheet-h">${avatarHtml(u, 'lg')}<div><div class="confirm-text"><b>${ROLE_LABEL[u.role]}</b></div><div class="muted" style="font-size:13.5px">${esc(u.statut)}${(isDirection() || CURRENT_USER.role === ROLES.SECRETAIRE || u.id === CURRENT_USER.id) ? ` · identifiant <b>${esc(u.username)}</b>` : ''}${canEditProfile(u) ? '' : ' · lecture seule'}</div></div></div>
+    <div class="sheet-h">${avatarHtml(u, 'lg')}<div><div class="confirm-text"><b>${esc(roleLabel(u))}</b></div><div class="muted" style="font-size:13.5px">${esc(u.statut)}${(isDirection() || CURRENT_USER.role === ROLES.SECRETAIRE || u.id === CURRENT_USER.id) ? ` · identifiant <b>${esc(u.username)}</b>` : ''}${canEditProfile(u) ? '' : ' · lecture seule'}</div></div></div>
     <div class="emp-stats">
       <div><b>${myAtt.length}</b><span>Services</span></div>
       <div><b>${fmtHours(totalMin)}</b><span>Heures</span></div>
@@ -183,15 +184,16 @@ function renderAdministration() {
       html += `${sectionHead('Comptes en attente de validation', pending.length)}<div class="grid-cards stagger" style="margin-bottom:30px">${pending.map((u) => `
         <div class="card pending-card">
           <div class="sheet-h">${avatarHtml(u)}<div><b>${esc(fullName(u))}</b><div class="muted" style="font-size:12.5px">${esc(u.username)} · demandé le ${fmtDateShort(u.dateCreation)}</div></div></div>
-          <div class="field"><label for="pr_${u.id}">Grade à attribuer (demandé : ${ROLE_LABEL[u.roleDemande || u.role] || '—'})</label><select class="input" id="pr_${u.id}">${roleOptions(u.roleDemande || u.role)}</select></div>
+          <div class="field"><label for="pr_${u.id}">Grade à attribuer (demandé : ${ROLE_LABEL[u.roleDemande || u.role] || '—'})</label><select class="input" id="pr_${u.id}" onchange="onRoleSelect(this,'ps_${u.id}')">${roleOptions(u.roleDemande || u.role)}</select></div>
+          ${subRoleField('ps_' + u.id, u.roleDemande || u.role, subRoleOf(u))}
           <div style="display:flex;gap:8px"><button class="btn btn-sm btn-sun" type="button" onclick="approveUser('${u.id}')">${icon('check', 'sm')}Valider</button><button class="btn btn-sm btn-danger" type="button" onclick="deleteUser('${u.id}')">Refuser</button></div>
         </div>`).join('')}</div>`;
     }
     html += `<div class="section-h"><span class="muted">${active.length} compte(s)</span><button class="btn btn-sm btn-sun" type="button" onclick="openCreateUserModal()">${icon('plus', 'sm')}Créer un utilisateur</button></div>`;
-    html += active.length ? `<div class="card table-card"><div class="table-scroll"><table class="tbl"><thead><tr><th>Nom</th><th>Identifiant</th><th>Rôle</th><th>Pièces</th><th>Statut</th><th>Créé le</th><th></th></tr></thead><tbody>
+    html += active.length ? `<div class="card table-card"><div class="table-scroll"><table class="tbl"><thead><tr><th>Nom</th><th>Identifiant</th><th>Rôle</th><th>Sous-rôle</th><th>Pièces</th><th>Statut</th><th>Créé le</th><th></th></tr></thead><tbody>
       ${active.map((u) => `<tr>
         <td><span style="display:inline-flex;align-items:center;gap:10px">${avatarHtml(u, 'sm')}<b>${esc(fullName(u))}</b></span></td>
-        <td><code>${esc(u.username)}</code></td><td>${ROLE_LABEL[u.role]}</td><td>${piecesCount(u)}/${PIECES.length}</td>
+        <td><code>${esc(u.username)}</code></td><td>${ROLE_LABEL[u.role]}</td><td>${subRoleOf(u) ? esc(subRoleOf(u)) : `<span class="muted">${subRolesOf(u.role).length ? 'à choisir' : '—'}</span>`}</td><td>${piecesCount(u)}/${PIECES.length}</td>
         <td>${u.statut === 'Actif' ? '<span class="badge good">Actif</span>' : '<span class="badge bad">Désactivé</span>'}</td>
         <td>${fmtDateShort(u.dateCreation)}</td>
         <td><div style="display:flex;gap:6px">
@@ -209,13 +211,16 @@ function renderAdministration() {
     const Y = `<span class="yes">${icon('check', 'sm')}</span>`, N = '<span class="no">—</span>';
     const rows = [
       ['Voir son planning', Y, Y, Y, N, Y], ['Déclarer sa présence', Y, Y, Y, N, Y], ['Valider une présence', N, Y, N, N, Y],
-      ['Remplir les montants de la compta', Y, Y, Y, N, Y], ['Consulter la comptabilité (tableau de bord)', N, N, Y, 'Lecture', Y],
+      ['Noter ses ventes (carte, hospitalité, cartes VIP)', Y, Y, Y, N, Y], ['Voir ses ventes et son salaire (lundi 6h → lundi 6h)', Y, Y, Y, N, Y],
+      ['Voir les ventes de tout le staff', N, Y, Y, 'Lecture', Y], ["Ouvrir l'onglet Comptabilité", N, Y, Y, 'Lecture', Y],
+      ['Remplir les montants de la compta', N, Y, Y, N, Y], ['Consulter la comptabilité (tableau de bord)', N, N, Y, 'Lecture', Y],
       ['Modifier la structure de la compta', N, N, Y, N, Y], ['Ajouter des documents', N, Y, Y, Y, Y],
       ['Créer, modifier et supprimer une soirée', N, N, Y, N, Y], ['Accepter ou refuser une privatisation', N, 'Lecture', Y, N, Y],
       ['Modifier la carte (affichée sur l\'accueil)', N, N, N, N, Y], ['Gérer et valider les comptes', N, N, N, N, Y],
       ['Voir les fiches de l\'équipe', 'La sienne', Y, Y, 'Lecture', Y], ['Modifier les fiches (nom, pièces jointes)', 'Ses pièces jointes', 'La sienne', 'Toutes', 'La sienne', 'Toutes'],
-      ['Changer le rôle d\'un compte', N, N, N, N, Y],
+      ['Changer le rôle et le sous-rôle d\'un compte', N, N, N, N, Y],
     ];
+    html += `<p class="field-hint" style="margin:0 0 12px">Sous-rôles (choisis par la direction) — managers : ${SUB_ROLES.MANAGER.map(esc).join(', ')} · employés : ${SUB_ROLES.EMPLOYE.map(esc).join(', ')}. Le sous-rôle indique la spécialité dans l'équipe ; les droits restent ceux du rôle.</p>`;
     html += `<div class="card table-card"><div class="table-scroll"><table class="tbl perm"><thead><tr><th>Fonctionnalité</th><th>Employé</th><th>Manager</th><th>Comptabilité</th><th>Gouv. / Fisc</th><th>Direction</th></tr></thead><tbody>
       ${rows.map((r) => `<tr>${r.map((c, i) => `<td>${i ? c : `<b style="font-weight:500">${c}</b>`}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div>`;
   } else if (adminTab === 'journal') {
@@ -243,6 +248,20 @@ function placeTabIndicator() {
 }
 
 function roleOptions(sel) { return Object.keys(ROLES).map((r) => `<option value="${r}" ${sel === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join(''); }
+/* Sous-rôle (direction seulement) : la liste suit le rôle choisi, masquée pour les rôles sans sous-rôle */
+function subRoleOptions(role, sel) {
+  return `<option value="">— Aucun sous-rôle —</option>` + subRolesOf(role).map((s) => `<option value="${esc(s)}" ${s === sel ? 'selected' : ''}>${esc(s)}</option>`).join('');
+}
+function subRoleField(id, role, sel) {
+  return `<div class="field" id="${id}Wrap" ${subRolesOf(role).length ? '' : 'hidden'}><label for="${id}">Sous-rôle</label><select class="input" id="${id}">${subRoleOptions(role, sel)}</select></div>`;
+}
+function onRoleSelect(roleEl, subId) {
+  const sub = document.getElementById(subId), wrap = document.getElementById(subId + 'Wrap');
+  if (!sub) return;
+  sub.innerHTML = subRoleOptions(roleEl.value, sub.value);
+  if (wrap) wrap.hidden = !subRolesOf(roleEl.value).length;
+}
+function pickedSubRole(role, subId) { const el = document.getElementById(subId); return el && subRolesOf(role).includes(el.value) ? el.value : ''; }
 
 function openCreateUserModal() {
   openModal('Créer un utilisateur', `
@@ -254,8 +273,11 @@ function openCreateUserModal() {
       <div class="field"><label for="cuUser">Identifiant</label><input class="input" id="cuUser" placeholder="prenom.nom" autocapitalize="off"></div>
       <div class="field"><label for="cuPass">Mot de passe provisoire</label><input class="input" id="cuPass" type="text" placeholder="à communiquer à la personne"></div>
     </div>
-    <div class="field"><label for="cuRole">Rôle</label><select class="input" id="cuRole">${roleOptions(ROLES.EMPLOYE)}</select></div>
-    <p class="field-hint">Les postes (barman, sécurité…) se choisissent sur chaque soirée, dans le Programme.</p>`,
+    <div class="grid-2">
+      <div class="field"><label for="cuRole">Rôle</label><select class="input" id="cuRole" onchange="onRoleSelect(this,'cuSub')">${roleOptions(ROLES.EMPLOYE)}</select></div>
+      ${subRoleField('cuSub', ROLES.EMPLOYE, '')}
+    </div>
+    <p class="field-hint">Le sous-rôle indique la spécialité de la personne dans l'équipe. Les postes de chaque soirée se choisissent dans le Programme.</p>`,
     `<button class="btn btn-sm btn-ghost" type="button" data-close-modal>Annuler</button><button class="btn btn-sm btn-sun" type="button" onclick="createUser()">Créer le compte</button>`);
 }
 async function createUser() {
@@ -265,11 +287,12 @@ async function createUser() {
   if (!prenom || !username) { toast('Le prénom et l\'identifiant sont obligatoires.', 'error'); return; }
   if (!pass) { toast('Choisissez un mot de passe provisoire.', 'error'); return; }
   if (DB.users.some((u) => u.username.toLowerCase() === username)) { toast('Cet identifiant est déjà utilisé.', 'error'); return; }
+  const role = document.getElementById('cuRole').value;
+  const sousRole = pickedSubRole(role, 'cuSub');
   if (isShared()) {
     try {
       await syncNow();
-      await ClubApi.req('users', { body: { prenom, nom: document.getElementById('cuNom').value.trim(), username, password: pass,
-        role: document.getElementById('cuRole').value } });
+      await ClubApi.req('users', { body: { prenom, nom: document.getElementById('cuNom').value.trim(), username, password: pass, role, sousRole } });
       await loadRemote();
     } catch (e) { toast(e.message, 'error'); return; }
     toast('Utilisateur créé.', 'success'); closeModal(); renderPage(false);
@@ -277,7 +300,7 @@ async function createUser() {
   }
   const u = {
     id: uid('u'), username, passHash: await hashPassword(username, pass), prenom, nom: document.getElementById('cuNom').value.trim() || '/',
-    role: document.getElementById('cuRole').value, statut: 'Actif', dateCreation: todayISO(),
+    role, sousRole, statut: 'Actif', dateCreation: todayISO(),
   };
   DB.users.push(u);
   logActivity('Utilisateur créé', fullName(u));
@@ -293,9 +316,12 @@ function openEditUserModal(userId) {
       <div class="field"><label for="euPrenom">Prénom</label><input class="input" id="euPrenom" value="${esc(u.prenom)}"></div>
       <div class="field"><label for="euNom">Nom RP</label><input class="input" id="euNom" value="${esc(u.nom)}"></div>
     </div>
-    ${dir ? `<div class="field"><label for="euRole">Rôle</label><select class="input" id="euRole">${roleOptions(u.role)}</select></div>
+    ${dir ? `<div class="grid-2">
+        <div class="field"><label for="euRole">Rôle</label><select class="input" id="euRole" onchange="onRoleSelect(this,'euSub')">${roleOptions(u.role)}</select></div>
+        ${subRoleField('euSub', u.role, subRoleOf(u))}
+      </div>
       <div class="field"><label for="euPass">Nouveau mot de passe (laisser vide pour ne pas changer)</label><input class="input" id="euPass" type="text"></div>`
-      : `<p class="field-hint">Rôle : <b>${ROLE_LABEL[u.role]}</b> — seule la direction peut le changer. Les pièces jointes se gèrent directement sur la fiche.</p>`}`,
+      : `<p class="field-hint">Rôle : <b>${esc(roleLabel(u))}</b> — seule la direction peut changer le rôle et le sous-rôle. Les pièces jointes se gèrent directement sur la fiche.</p>`}`,
     `<button class="btn btn-sm btn-ghost" type="button" onclick="openEmployeeSheet('${userId}')">Retour</button><button class="btn btn-sm btn-sun" type="button" onclick="saveEditUser('${userId}')">Enregistrer</button>`);
 }
 async function saveEditUser(userId) {
@@ -311,6 +337,7 @@ async function saveEditUser(userId) {
   u.prenom = prenom;
   u.nom = document.getElementById('euNom').value.trim() || '/';
   u.role = newRole;
+  u.sousRole = isDirection() ? pickedSubRole(newRole, 'euSub') : subRoleOf(u);
   const passEl = document.getElementById('euPass');
   const np = passEl ? passEl.value : '';
   if (np && isShared()) {
@@ -325,8 +352,9 @@ function approveUser(userId) {
   if (!u) return;
   const sel = document.getElementById('pr_' + userId);
   u.role = sel ? sel.value : (u.roleDemande || u.role);
+  u.sousRole = pickedSubRole(u.role, 'ps_' + userId);
   u.statut = 'Actif';
-  logActivity('Compte validé', `${fullName(u)} — ${ROLE_LABEL[u.role]}`);
+  logActivity('Compte validé', `${fullName(u)} — ${roleLabel(u)}`);
   toast(`Compte de ${fullName(u)} validé.`, 'success');
   renderShell();
   refresh();

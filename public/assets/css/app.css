@@ -602,6 +602,7 @@ button.ev-row:hover{background:var(--surface-2);transform:translateX(4px)}
 .emp b{font-size:15.5px;font-weight:600;letter-spacing:-.025em}
 .emp small{font-size:13px;color:var(--muted)}
 .emp .badge{margin-top:8px}
+.emp .emp-sub{font-size:12.5px;font-weight:500;color:var(--sun-text)}
 .emp-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0 18px}
 .emp-stats div{padding:12px;border-radius:16px;background:var(--canvas)}
 .emp-stats b{display:block;font:600 22px/1 var(--font-display);letter-spacing:-.04em}

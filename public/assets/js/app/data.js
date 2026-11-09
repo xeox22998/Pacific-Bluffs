@@ -9,13 +9,23 @@ function uid(prefix) { return prefix + '_' + Math.random().toString(36).slice(2,
 const ROLES = { EMPLOYE: 'EMPLOYE', MANAGER: 'MANAGER', SECRETAIRE: 'SECRETAIRE', DIRECTION: 'DIRECTION', GOUVERNEMENT: 'GOUVERNEMENT' };
 const ROLE_LABEL = { EMPLOYE: 'Employé', MANAGER: 'Manager', SECRETAIRE: 'Comptabilité', DIRECTION: 'Direction', GOUVERNEMENT: 'Gouvernement / Fisc' };
 const ROLE_DESC = {
-  EMPLOYE: 'Voir mon planning, déclarer mes présences.',
+  EMPLOYE: 'Voir mon planning, déclarer mes présences, noter mes ventes.',
   MANAGER: "Gérer les présences et le planning de l'équipe.",
   SECRETAIRE: 'Gérer la comptabilité et les documents administratifs.',
   DIRECTION: 'Accès complet à la gestion du Pacific Bluffs.',
   GOUVERNEMENT: 'Consultation de la comptabilité à titre de contrôle fiscal.',
 };
 const ROLE_ORDER = [ROLES.EMPLOYE, ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.GOUVERNEMENT, ROLES.DIRECTION];
+/* Sous-rôles (spécialité dans l'équipe) : attribués par la direction seulement.
+   Même liste dans netlify/functions/api.mjs (SUB_ROLES), revérifiée par le serveur. */
+const SUB_ROLES = {
+  MANAGER: ['Sécurité', 'Bar', 'Hospitalité / Loisirs'],
+  EMPLOYE: ['Agent de sécurité', 'Barman / Barmaid', "Animateur / Agent d'accueil", 'Agent polyvalent'],
+};
+function subRolesOf(role) { return SUB_ROLES[role] || []; }
+function subRoleOf(u) { return u && subRolesOf(u.role).includes(u.sousRole) ? u.sousRole : ''; }
+/* Rôle affiché : « Manager · Bar », « Employé · Barman / Barmaid »… */
+function roleLabel(u) { const s = subRoleOf(u); return (ROLE_LABEL[u.role] || '') + (s ? ' · ' + s : ''); }
 
 const NAV_ITEMS = [
   { key: 'dashboard',      label: 'Tableau de bord', icon: 'grid',        roles: '*' },
@@ -24,7 +34,7 @@ const NAV_ITEMS = [
   { key: 'presences',      label: 'Présences',       icon: 'checkCircle', roles: [ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
   { key: 'programme',      label: 'Programme',       icon: 'mic',         roles: [ROLES.EMPLOYE, ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
   { key: 'privatisations', label: 'Privatisations',  icon: 'party',       roles: [ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
-  { key: 'comptabilite',   label: 'Comptabilité',    icon: 'wallet',      roles: '*' },
+  { key: 'comptabilite',   label: 'Comptabilité',    icon: 'wallet',      roles: [ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION, ROLES.GOUVERNEMENT] },
   { key: 'carte',          label: 'La carte',        icon: 'glass',       roles: [ROLES.EMPLOYE, ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
   { key: 'documents',      label: 'Documents',       icon: 'folder',      roles: '*' },
   { key: 'equipe',         label: 'Équipe',          icon: 'users',       roles: [ROLES.EMPLOYE, ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION, ROLES.GOUVERNEMENT] },
@@ -92,7 +102,8 @@ function defaultExpenseRows() { return EXPENSE_CATS.map((c) => ({ categorie: c, 
    Journée de service : de 6h à 6h le lendemain, heure de Paris (comme le serveur). À 6h la
    journée se ferme : ses ventes passent toutes seules dans la comptabilité (cases « Bar &
    boissons », « Entrées soirées », « Hébergements », « Cartes membres ») et dans le dossier salaires.
-   Chaque vendeur touche COMMISSION_RATE (25 %) de chaque vente : c'est son salaire de la semaine.
+   Chaque vendeur touche COMMISSION_RATE (25 %) de chaque vente : c'est son salaire de la semaine,
+   du lundi 6h au lundi 6h suivant (= les journées de service du lundi au dimanche).
    ===================================================================== */
 const SALE_TYPES = [
   { id: 'carte', label: 'Carte', long: 'Fiche des ventes de la carte', emoji: '🍹', compta: 'Bar & boissons' },
@@ -119,6 +130,8 @@ function minutesToTransfer() {
 }
 function dayKeyOf(iso) { return DAY_KEYS[(new Date(iso + 'T00:00:00').getDay() + 6) % 7]; }
 function mondayOf(iso) { const d = new Date(iso + 'T00:00:00'); return shiftISO(iso, -((d.getDay() + 6) % 7)); }
+/* Semaine de salaire : du lundi 6h au lundi 6h suivant (ex : « lun. 09/11 6h → lun. 16/11 6h ») */
+function salaryWeekLabel(mon) { const f = (iso) => iso.slice(8, 10) + '/' + iso.slice(5, 7); return `lun. ${f(mon)} 6h → lun. ${f(shiftISO(mon, 7))} 6h`; }
 function saleType(s) { return (s && s.type) || 'carte'; }
 function saleDayKey(s) { return s.date ? dayKeyOf(s.date) : s.day; }
 function saleTotal(s) { return (Number(s.prix) || 0) * (Number(s.qty) || 0); }

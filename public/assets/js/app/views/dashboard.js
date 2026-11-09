@@ -57,7 +57,7 @@ function logRows(list) {
 function renderDashboard() {
   const u = CURRENT_USER;
   const today = todayISO();
-  let html = pageHead(fmtDate(today), `${greeting()}, ${esc(u.prenom)}`, `Connecté en tant que <b>${ROLE_LABEL[u.role]}</b>. Voici l'essentiel du Pacific Bluffs.`);
+  let html = pageHead(fmtDate(today), `${greeting()}, ${esc(u.prenom)}`, `Connecté en tant que <b>${esc(roleLabel(u))}</b>. Voici l'essentiel du Pacific Bluffs.`);
 
   const pending = isDirection() ? DB.users.filter((x) => x.statut === 'En attente').length : 0;
   if (pending) html += `<button class="hint hint-btn" type="button" onclick="adminTab='utilisateurs';goPage('administration')">${icon('userCheck', 'sm')}<span><b>${pending} compte${pending > 1 ? 's' : ''} en attente de validation.</b> Cliquez pour les valider dans Administration.</span>${icon('arrow', 'sm')}</button>`;
@@ -132,9 +132,15 @@ function renderDashboard() {
     const next = myUpcomingAssignments(u.id, 1)[0];
     const myAtt = DB.attendances.filter((a) => a.userId === u.id);
     const totalMin = myAtt.reduce((s, a) => s + (durationMinutes(a.heureArrivee, a.heureDepart) || 0), 0);
+    // Mes ventes et mon salaire de la semaine (du lundi 6h au lundi 6h)
+    const mon = mondayOf(serviceDay());
+    const myWeek = allSales().filter((s) => s.userId === u.id && s.date >= mon && s.date <= shiftISO(mon, 6));
+    const myDone = sumSales(myWeek.filter(isSaleTransferred)), myPend = sumSales(myWeek.filter((s) => !isSaleTransferred(s)));
     html += `<div class="grid-2c">
       <section>${sectionHead('Mon prochain service')}${next ? renderServiceCard(next.event, next.assignment, u.id) : emptyState('📭', 'Aucun service prévu', 'Prenez un poste depuis le Programme pour apparaître ici.')}</section>
       <section>${sectionHead('Mes chiffres')}<div class="stats-row stagger" style="grid-template-columns:1fr 1fr">
+        ${statTile('Mes ventes de la semaine', 'receipt', myDone + myPend, { money: true, foot: salaryWeekLabel(mon) })}
+        ${statTile('Mon salaire de la semaine', 'wallet', commissionOf(myDone), { money: true, cls: 'dark', foot: myPend ? `+ ${fmtMoney(commissionOf(myPend))} à 6h` : `${COMMISSION_PCT} % de mes ventes` })}
         ${statTile('Services', 'calendar', myAtt.length)}
         ${statTile('Heures effectuées', 'clock', hoursDec(totalMin), { suffix: ' h' })}
         ${statTile('Présences validées', 'checkCircle', myAtt.filter((a) => a.statut === 'Validé').length)}

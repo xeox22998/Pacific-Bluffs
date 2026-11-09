@@ -189,7 +189,7 @@ function renderShell() {
     return `<button type="button" class="${CURRENT_PAGE === it.key ? 'is-active' : ''}" data-page="${it.key}" onclick="goPage('${it.key}')">${icon(it.icon)}<span>${TAB_SHORT[it.label] || it.label}</span>${b ? `<span class="rail-badge">${b}</span>` : ''}</button>`;
   }).join('');
   const u = CURRENT_USER;
-  $id('userChip').innerHTML = `${avatarHtml(u)}<span class="uc-txt"><b>${esc(fullName(u))}</b><small>${ROLE_LABEL[u.role]}</small></span>`;
+  $id('userChip').innerHTML = `${avatarHtml(u)}<span class="uc-txt"><b>${esc(fullName(u))}</b><small>${esc(roleLabel(u))}</small></span>`;
   setSyncState(isShared() ? (hasPendingChanges() ? 'saving' : 'ok') : 'local');
   requestAnimationFrame(placeRailIndicator);
 }
@@ -283,15 +283,15 @@ function runSearch() {
   const q = $id('globalSearch').value.trim().toLowerCase();
   const panel = $id('searchPanel');
   if (!q || !DB) { hideSearch(); return; }
-  const emp = navAllowed('equipe') ? DB.users.filter((u) => canViewProfile(u) && (fullName(u) + ' ' + ROLE_LABEL[u.role]).toLowerCase().includes(q)).slice(0, 6) : [];
+  const emp = navAllowed('equipe') ? DB.users.filter((u) => canViewProfile(u) && (fullName(u) + ' ' + roleLabel(u)).toLowerCase().includes(q)).slice(0, 6) : [];
   const evs = navAllowed('programme') ? DB.events.filter((e) => e.nom.toLowerCase().includes(q) || e.date.includes(q) || fmtDate(e.date).toLowerCase().includes(q))
     .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6) : [];
   const rdvs = navAllowed('privatisations') ? DB.rdv.filter((r) => (r.nom + ' ' + r.ref + ' ' + (r.typeEvent || '')).toLowerCase().includes(q)).slice(0, 4) : [];
   const docs = (isMgmt() || canSeeFinance()) ? visibleDocs().filter((d) => d.nom.toLowerCase().includes(q)).slice(0, 6) : [];
-  const weeks = DB.accountingWeeks.filter((w) => ('semaine ' + w.numero).includes(q) || ('s' + w.numero) === q).slice(0, 4);
+  const weeks = navAllowed('comptabilite') ? DB.accountingWeeks.filter((w) => ('semaine ' + w.numero).includes(q) || ('s' + w.numero) === q).slice(0, 4) : [];
   const items = navAllowed('carte') ? menuItems().filter((m) => m.nom.toLowerCase().includes(q)).slice(0, 4) : [];
   let html = '';
-  if (emp.length) html += `<div class="sr-group"><h6>Employés</h6>${emp.map((u) => `<button class="sr-item" type="button" onclick="hideSearch();goPage('equipe');setTimeout(()=>openEmployeeSheet('${u.id}'),260)">${avatarHtml(u, 'sm')}<span>${esc(fullName(u))}<small>${ROLE_LABEL[u.role]}</small></span></button>`).join('')}</div>`;
+  if (emp.length) html += `<div class="sr-group"><h6>Employés</h6>${emp.map((u) => `<button class="sr-item" type="button" onclick="hideSearch();goPage('equipe');setTimeout(()=>openEmployeeSheet('${u.id}'),260)">${avatarHtml(u, 'sm')}<span>${esc(fullName(u))}<small>${esc(roleLabel(u))}</small></span></button>`).join('')}</div>`;
   if (evs.length) html += `<div class="sr-group"><h6>Soirées</h6>${evs.map((e) => `<button class="sr-item" type="button" onclick="hideSearch();goPage('programme');setTimeout(()=>openEventDetail('${e.id}'),260)">${icon('mic', 'sm')}<span>${esc(e.nom)}<small>${fmtDate(e.date)}</small></span></button>`).join('')}</div>`;
   if (rdvs.length) html += `<div class="sr-group"><h6>Privatisations</h6>${rdvs.map((r) => `<button class="sr-item" type="button" onclick="hideSearch();goPage('privatisations');setTimeout(()=>openRdv('${r.id}'),260)">${icon('party', 'sm')}<span>${esc(r.nom)}<small>${esc(r.ref)} · ${esc(r.statut)}</small></span></button>`).join('')}</div>`;
   if (weeks.length) html += `<div class="sr-group"><h6>Comptabilité</h6>${weeks.map((w) => `<button class="sr-item" type="button" onclick="hideSearch();currentWeekId='${w.id}';goPage('comptabilite')">${icon('wallet', 'sm')}<span>Semaine ${w.numero}<small>${fmtDateShort(w.dateDebut)} → ${fmtDateShort(w.dateFin)}</small></span></button>`).join('')}</div>`;
@@ -305,7 +305,7 @@ function runSearch() {
 function openProfile() {
   const u = CURRENT_USER;
   openModal('Mon profil', `
-    <div class="sheet-h">${avatarHtml(u, 'lg')}<div><div class="confirm-text"><b>${esc(fullName(u))}</b></div><div class="muted" style="font-size:13.5px">${ROLE_LABEL[u.role]} · identifiant <b>${esc(u.username)}</b></div></div></div>
+    <div class="sheet-h">${avatarHtml(u, 'lg')}<div><div class="confirm-text"><b>${esc(fullName(u))}</b></div><div class="muted" style="font-size:13.5px">${esc(roleLabel(u))} · identifiant <b>${esc(u.username)}</b></div></div></div>
     <button class="btn btn-sm" type="button" style="margin-top:12px" onclick="openEmployeeSheet('${u.id}')">${icon('file', 'sm')}Ma fiche et mes pièces jointes</button>
     <div class="sub-h">Changer mon mot de passe</div>
     <div class="field"><label for="pfOld">Mot de passe actuel</label><input class="input" id="pfOld" type="password" autocomplete="current-password"></div>

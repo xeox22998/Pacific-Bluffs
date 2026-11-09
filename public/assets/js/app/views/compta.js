@@ -1,9 +1,11 @@
 /* =====================================================================
    PACIFIC BLUFFS — Comptabilité hebdomadaire
-   Droits (identiques à l'ancien espace) :
+   Droits :
    - Direction + Comptabilité : structure (lignes, semaines, salaires, membres)
-   - Tout le monde sauf Gouvernement / Fisc : saisie des montants
+   - Managers : saisie des montants
    - Gouvernement / Fisc : lecture seule (contrôle fiscal)
+   - Employés : pas d'accès (ils voient leurs ventes et leur salaire dans l'onglet Ventes ;
+     le serveur ne leur envoie qu'un résumé des semaines, sans les montants)
    ===================================================================== */
 
 let currentWeekId = null;

@@ -22,6 +22,12 @@ export const config = { path: '/api/*' };
 const crypto = globalThis.crypto || webcrypto;
 
 const ROLES = ['EMPLOYE', 'MANAGER', 'SECRETAIRE', 'DIRECTION', 'GOUVERNEMENT'];
+// Sous-rôles attribués par la direction seulement (même liste que SUB_ROLES dans public/assets/js/app/data.js)
+const SUB_ROLES = {
+  MANAGER: ['Sécurité', 'Bar', 'Hospitalité / Loisirs'],
+  EMPLOYE: ['Agent de sécurité', 'Barman / Barmaid', "Animateur / Agent d'accueil", 'Agent polyvalent'],
+};
+const validSubRole = (role, v) => ((SUB_ROLES[role] || []).includes(v) ? v : '');
 const COLS = ['users', 'events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales'];
 const WHOLE = ['postes', 'menu', 'couleurs'];
 const POSTER_MAX = 3000000; // affiche compressée par le navigateur : ~2 Mo maximum
@@ -251,20 +257,35 @@ async function routeRegister(req, store) {
 /* =====================================================================
    ROUTES CONNECTÉES
    ===================================================================== */
+/* Un employé n'a pas accès à la comptabilité : il ne reçoit des semaines que les dates, la validation
+   (fiche verrouillée) et ce qui le concerne (versement de son salaire, ses lignes de salaire) */
+function weekForEmploye(w, u) {
+  const name = fullName(u).toLowerCase();
+  const pay = w.commissionPay && w.commissionPay[u.id];
+  return {
+    id: w.id, numero: w.numero, dateDebut: w.dateDebut, dateFin: w.dateFin, statutValidation: w.statutValidation,
+    commissionPay: pay ? { [u.id]: pay } : {},
+    salaries: (w.salaries || []).filter((s) => s && String(s.nom || '').trim().toLowerCase() === name)
+      .map((s) => ({ id: s.id, nom: s.nom, montant: s.montant, dateVersement: s.dateVersement, valide: s.valide })),
+    revenues: [], expenses: [], members: [], menuSales: {}, resume: true,
+  };
+}
+
 async function routeData(store, a) {
   const all = await loadAll(store);
   const role = a.user.role;
   const finance = ['SECRETAIRE', 'DIRECTION', 'GOUVERNEMENT'].includes(role);
+  const employe = role === 'EMPLOYE';
   const db = {
     users: all.users.filter((u) => role === 'DIRECTION' || u.statut !== 'En attente').map(publicUser),
     postes: all.postes || [],
     events: all.events,
     attendances: all.attendances,
-    accountingWeeks: all.accountingWeeks,
+    accountingWeeks: employe ? all.accountingWeeks.map((w) => weekForEmploye(w, a.user)) : all.accountingWeeks,
     documents: finance ? all.documents : all.documents.filter((d) => d.visibilite !== 'Direction & Comptabilité'),
     activityLogs: all.activityLogs,
     rdv: ['DIRECTION', 'SECRETAIRE', 'MANAGER'].includes(role) ? all.rdv : [],
-    barSales: all.barSales,
+    barSales: employe ? all.barSales.filter((s) => s && s.userId === a.user.id) : all.barSales, // l'employé : ses ventes seulement
     menu: all.menu,
     couleurs: all.couleurs,
     notifications: [],
@@ -279,7 +300,8 @@ async function routeSync(req, store, a) {
   const role = a.user.role;
   const D = role === 'DIRECTION', S = role === 'SECRETAIRE', M = role === 'MANAGER', G = role === 'GOUVERNEMENT';
   const perms = { // [ajout / modification, suppression] — les fiches (users) sont filtrées champ par champ plus bas
-    users: [true, D], events: [!G, D || S], attendances: [!G, D || M || S], accountingWeeks: [!G, D || S],
+    // comptabilité : pas d'accès pour les employés (ils n'en reçoivent qu'un résumé)
+    users: [true, D], events: [!G, D || S], attendances: [!G, D || M || S], accountingWeeks: [D || S || M, D || S],
     documents: [D || S || M || G, D], activityLogs: [true, false], rdv: [D || S, D], barSales: [!G, !G],
   };
   const wholePerms = { postes: D, menu: D, couleurs: D || S };
@@ -318,11 +340,13 @@ async function routeSync(req, store, a) {
           // Nom et prénom : direction et comptabilité pour tous, manager et gouvernement pour leur propre fiche, employé jamais
           if (!(D || S || ((M || G) && self))) continue;
           list[i] = { ...cur, prenom: clean(rec.prenom, 40) || cur.prenom, nom: clean(rec.nom, 40) || '/' };
-          if (D) { // rôle et statut : direction seulement
+          if (D) { // rôle, sous-rôle et statut : direction seulement
             list[i].role = ROLES.includes(rec.role) ? rec.role : cur.role;
             list[i].statut = ['Actif', 'Désactivé', 'En attente'].includes(rec.statut) ? rec.statut : cur.statut;
           }
           if (self) { list[i].role = cur.role; list[i].statut = 'Actif'; } // pas d'auto-rétrogradation
+          // sous-rôle : choisi par la direction, effacé s'il ne correspond pas au rôle
+          list[i].sousRole = validSubRole(list[i].role, D && rec.sousRole !== undefined ? rec.sousRole : cur.sousRole);
           continue;
         }
         if (name === 'activityLogs') { if (i === undefined) { list.push(rec); index.set(rec.id, list.length - 1); } continue; }
@@ -450,9 +474,10 @@ async function routeCreateUser(req, store, a) {
   const b = await readBody(req);
   const v = validateAccount(b, a.users);
   if (v.error) return fail(400, v.error);
+  const role = ROLES.includes(b.role) ? b.role : 'EMPLOYE';
   const user = {
     id: 'u_' + randomHex(6), username: v.username, prenom: v.prenom, nom: v.nom,
-    role: ROLES.includes(b.role) ? b.role : 'EMPLOYE', poste: clean(b.poste, 60) || 'Non renseigné', statut: 'Actif', dateCreation: todayParis(),
+    role, sousRole: validSubRole(role, b.sousRole), poste: clean(b.poste, 60) || 'Non renseigné', statut: 'Actif', dateCreation: todayParis(),
   };
   await setPassword(user, v.password);
   a.users.push(user);

@@ -6,10 +6,11 @@
    - Journée de service de 6h à 6h (heure de Paris). À 6h du matin, les ventes
      de la soirée passent automatiquement dans la comptabilité (Bar & boissons,
      Entrées soirées, Hébergements, Cartes membres) et dans le dossier salaires.
-   - Salaire : 25 % de chaque vente (COMMISSION_RATE), versé en fin de semaine
-     (lundi → dimanche).
+   - Salaire : 25 % de chaque vente (COMMISSION_RATE), calculé du lundi 6h au
+     lundi 6h suivant (soirées du lundi au dimanche), versé en fin de semaine.
    Droits (revérifiés par le serveur) : chacun n'ajoute et ne retire que SES
-   ventes de la soirée en cours ; manager et gouvernement lisent toutes les
+   ventes de la soirée en cours ; un employé ne voit que ses ventes et son
+   salaire (pas la comptabilité) ; manager et gouvernement lisent toutes les
    fiches ; direction et comptabilité corrigent tout (une semaine validée :
    direction seulement).
    ===================================================================== */
@@ -74,13 +75,13 @@ function renderVentes() {
 
   const actions = canCorrectSales() ? `<button class="btn btn-sm" type="button" onclick="exportDossierCSV()">${icon('download', 'sm')}Export du dossier</button>` : '';
   let html = pageHead('Ventes', mine ? 'Mes fiches de ventes' : (who ? `Ventes de ${esc(who)}` : 'Fiches de ventes'),
-    `Notez chaque vente au moment où vous la faites : elle est enregistrée tout de suite. À <b>6h du matin</b>, les ventes de la soirée passent automatiquement dans la comptabilité et dans le dossier salaires. Chaque vendeur touche <b>${COMMISSION_PCT} %</b> de ses ventes : c'est son salaire de la semaine.`, actions);
+    `Notez chaque vente au moment où vous la faites : elle est enregistrée tout de suite, soirée par soirée. À <b>6h du matin</b>, les ventes de la soirée passent automatiquement ${navAllowed('comptabilite') ? 'dans la comptabilité et ' : ''}dans le dossier salaires. Chaque vendeur touche <b>${COMMISSION_PCT} %</b> de ses ventes : c'est son salaire de la semaine, calculé <b>du lundi 6h au lundi 6h</b>.`, actions);
 
   if (!canFillFinance()) html += `<div class="hint">${icon('eye', 'sm')}<span>Consultation en lecture seule, à titre de contrôle fiscal.</span></div>`;
 
   // Soirée en cours et compte à rebours du transfert
   html += `<div class="sale-clock card"><span class="sc-dot" aria-hidden="true"></span><div><b>Soirée du ${esc(fmtDate(today).toLowerCase())} en cours</b>
-    <small>Passage automatique en comptabilité dans <span id="saleClock">${transferIn()}</span> (à 6h).</small></div></div>`;
+    <small>Passage automatique ${navAllowed('comptabilite') ? 'en comptabilité' : 'dans le dossier salaires'} dans <span id="saleClock">${transferIn()}</span> (à 6h).</small></div></div>`;
 
   // Chiffres : ce soir et la semaine en cours
   const mon = mondayOf(today);
@@ -91,7 +92,7 @@ function renderVentes() {
   html += `<div class="stats-row stagger">
     ${statTile(mine ? 'Mes ventes ce soir' : 'Ventes ce soir', 'receipt', tonightTotal, { money: true, foot: `${tonight.length} vente${tonight.length > 1 ? 's' : ''}` })}
     ${statTile(mine ? 'Ma part ce soir' : 'Part des vendeurs ce soir', 'coins', commissionOf(tonightTotal), { money: true, foot: `${COMMISSION_PCT} % des ventes` })}
-    ${statTile(mine ? 'Mes ventes de la semaine' : 'Ventes de la semaine', 'trend', sumSales(week), { money: true, foot: `du ${fmtDateShort(mon)} au ${fmtDateShort(shiftISO(mon, 6))}` })}
+    ${statTile(mine ? 'Mes ventes de la semaine' : 'Ventes de la semaine', 'trend', sumSales(week), { money: true, foot: salaryWeekLabel(mon) })}
     ${statTile(mine ? 'Mon salaire de la semaine' : 'Salaires de la semaine', 'wallet', commissionOf(sumSales(weekDone)), { money: true, cls: 'dark', foot: tonight.length ? `+ ${fmtMoney(commissionOf(tonightTotal))} à 6h` : 'versé en fin de semaine' })}
   </div>`;
 
@@ -139,7 +140,10 @@ function renderSaleSheet(list) {
   const showClient = isCard || isHosp;
   const next = shiftISO(VENTE_DAY, 1);
   const noWeek = !open && !weekForDate(VENTE_DAY);
-  let status = open
+  const compta = navAllowed('comptabilite');
+  let status = !compta
+    ? (open ? 'En cours · passe dans votre dossier salaires à 6h' : `Enregistrée · passée dans votre dossier salaires le ${fmtDate(next).toLowerCase()} à 6h`)
+    : open
     ? `En cours · passe en comptabilité (« ${t.compta} ») à 6h`
     : `Transférée en comptabilité (« ${t.compta} ») le ${fmtDate(next).toLowerCase()} à 6h${noWeek ? ' — la semaine comptable n\'existe pas encore : les ventes y apparaîtront dès sa création' : ''}`;
   if (isHosp && list.length) {
@@ -150,7 +154,7 @@ function renderSaleSheet(list) {
 
   let form = '';
   if (canAddSaleOn(VENTE_DAY)) form = saleForm();
-  else if (canFillFinance()) form = `<div class="sale-lock">${icon('shield', 'sm')}<span>${dayLockedByValidation(VENTE_DAY) ? 'Semaine validée par la direction : la fiche est verrouillée.' : 'Soirée transférée en comptabilité : la fiche est verrouillée. Une erreur ? Prévenez la comptabilité, qui peut la corriger.'}</span></div>`;
+  else if (canFillFinance()) form = `<div class="sale-lock">${icon('shield', 'sm')}<span>${dayLockedByValidation(VENTE_DAY) ? 'Semaine validée par la direction : la fiche est verrouillée.' : 'Soirée passée à 6h : la fiche est verrouillée. Une erreur ? Prévenez la comptabilité, qui peut la corriger.'}</span></div>`;
 
   return `<div class="card sale-sheet">
     <div class="bs-head"><div><b>${t.emoji} ${t.long} — ${esc(saleDayLabel(VENTE_DAY).toLowerCase())}</b><small>${esc(status)}</small></div>
@@ -218,7 +222,7 @@ function openVentesDay(date, type) {
 }
 function addVente() {
   const date = VENTE_DAY;
-  if (!canAddSaleOn(date)) { toast('Cette soirée est déjà passée en comptabilité : la fiche est verrouillée.', 'error'); renderPage(false); return; }
+  if (!canAddSaleOn(date)) { toast('Cette soirée est déjà passée (6h) : la fiche est verrouillée.', 'error'); renderPage(false); return; }
   const val = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
   const sellerId = canCorrectSales() && val('svSeller') ? val('svSeller') : CURRENT_USER.id;
   const type = VENTE_TYPE;
@@ -266,7 +270,7 @@ function removeVente(id) {
   }, 'Retirer');
 }
 
-/* ================= DOSSIER SALAIRES (lundi → dimanche) ================= */
+/* ================= DOSSIER SALAIRES (du lundi 6h au lundi 6h) ================= */
 function renderDossier() {
   const today = serviceDay();
   const curMon = mondayOf(today);
@@ -282,7 +286,7 @@ function renderDossier() {
   const all = scopeLabel() === 'all';
 
   let html = `<section class="section">${sectionHead('Dossier salaires', null, `<span class="badge nodot">${COMMISSION_PCT} % de chaque vente</span>`)}
-    <p class="field-hint" style="margin:-6px 0 12px">Rempli automatiquement à 6h avec les ventes de la soirée. Salaire de la semaine = ${COMMISSION_PCT} % des ventes du lundi au dimanche, versé en fin de semaine${acc ? ` (comptabilité semaine ${acc.numero})` : ''}.</p>
+    <p class="field-hint" style="margin:-6px 0 12px">Les fiches s'enregistrent chaque soirée et remplissent le dossier à 6h. Salaire de la semaine = ${COMMISSION_PCT} % des ventes <b>du lundi 6h au lundi 6h</b> suivant (${salaryWeekLabel(from)}), versé en fin de semaine${acc && navAllowed('comptabilite') ? ` (comptabilité semaine ${acc.numero})` : ''}.</p>
     <div class="pill-row" role="tablist" aria-label="Semaines du dossier">${mondays.map((m) => `<button class="pill plain ${m === DOSSIER_WEEK ? 'is-active' : ''}" type="button" role="tab" aria-selected="${m === DOSSIER_WEEK}" onclick="selectDossierWeek('${m}')">${m === curMon ? 'Cette semaine' : 'Sem. du ' + fmtDateShort(m).slice(0, 5)}</button>`).join('')}</div>`;
 
   if (all) {
@@ -318,7 +322,7 @@ function renderDossier() {
   const pv = pay[uid0] || {};
   html += `<div class="dossier">
     <div class="card dossier-sum"><span class="lbl">${scopeLabel() === 'me' ? 'Mon salaire de la semaine' : 'Salaire de la semaine'}</span><span class="v">${fmtMoney(commissionOf(doneTotal))}</span>
-      <small>${COMMISSION_PCT} % de ${fmtMoney(doneTotal)} de ventes${pendTotal ? ` · + ${fmtMoney(commissionOf(pendTotal))} ce soir, ajoutés à 6h` : ''}</small>
+      <small>${COMMISSION_PCT} % de ${fmtMoney(doneTotal)} de ventes${pendTotal ? ` · + ${fmtMoney(commissionOf(pendTotal))} ce soir, ajoutés à 6h` : ''}<br>${salaryWeekLabel(from)}</small>
       <span>${pv.valide ? `<span class="badge good">Versé${pv.dateVersement ? ' le ' + fmtDateShort(pv.dateVersement) : ''}</span>` : statusBadge('À valider')}</span></div>
     <div class="card table-card"><div class="table-scroll"><table class="tbl compact"><thead><tr><th>Soirée</th><th class="num">Carte</th><th class="num">Hospitalité</th><th class="num">Cartes VIP</th><th class="num">Total</th><th class="num">Part ${COMMISSION_PCT} %</th><th>État</th></tr></thead><tbody>
       ${per.map((x) => `<tr${x.n ? '' : ' class="muted-row"'}><td><button class="link-btn" type="button" onclick="selectVenteDay('${x.d}')">${esc(fmtDate(x.d))}</button></td><td class="num">${x.carte ? fmtMoney(x.carte) : '—'}</td><td class="num">${x.hospitalite ? fmtMoney(x.hospitalite) : '—'}</td><td class="num">${x.carteVip ? fmtMoney(x.carteVip) : '—'}</td>
@@ -337,7 +341,7 @@ function exportDossierCSV() {
   const from = DOSSIER_WEEK || mondayOf(serviceDay()), to = shiftISO(from, 6);
   const sales = salesInRange(from, to).sort((a, b) => (a.date + (a.createdAt || '')).localeCompare(b.date + (b.createdAt || '')));
   const q = (v) => `"${String(v === undefined || v === null ? '' : v).replace(/"/g, '""')}"`;
-  const lines = [[q(`Pacific Bluffs — Dossier salaires`), q(`${from} → ${to}`), q(`Commission ${COMMISSION_PCT} %`)].join(';'), ''];
+  const lines = [[q(`Pacific Bluffs — Dossier salaires`), q(`du lundi ${from} 6h au lundi ${shiftISO(from, 7)} 6h`), q(`Commission ${COMMISSION_PCT} %`)].join(';'), ''];
   lines.push(['Employé', 'Ventes carte', 'Hospitalité', 'Cartes VIP', 'Total ventes', `Salaire ${COMMISSION_PCT} %`, 'Dont en attente (6h)'].map(q).join(';'));
   const pend = new Map(salesBySeller(sales.filter((s) => !isSaleTransferred(s))).map((x) => [x.userId, x.commission]));
   salesBySeller(sales).forEach((x) => lines.push([q(userLabel(x.userId)), x.carte, x.hospitalite, x.carteVip, x.total, x.commission, pend.get(x.userId) || 0].join(';')));
@@ -361,6 +365,6 @@ setInterval(() => {
   const old = VENTE_CLOCK_DAY;
   VENTE_CLOCK_DAY = d;
   if (VENTE_DAY === old) VENTE_DAY = d;
-  if (allSales().some((s) => s.date === old)) toast('6h : les ventes de la soirée sont passées en comptabilité et dans le dossier salaires.', 'success');
+  if (allSales().some((s) => s.date === old)) toast(`6h : les ventes de la soirée sont passées ${navAllowed('comptabilite') ? 'en comptabilité et ' : ''}dans le dossier salaires.`, 'success');
   if (['ventes', 'comptabilite', 'dashboard'].includes(CURRENT_PAGE) && !userIsBusy()) renderPage(false);
 }, 30000);
