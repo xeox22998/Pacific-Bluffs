@@ -156,6 +156,7 @@ function enterApp(animated) {
     try { saved = sessionStorage.getItem('pacific:page'); } catch (e) { /* navigation privée */ }
     CURRENT_PAGE = saved && PAGES[saved] ? saved : 'dashboard';
     autoClassicSoirees();                                    // les prochains mois sont toujours remplis
+    upgradeCarte();                                          // nouvelle carte : remplace l'ancienne enregistrée
     syncAllRdv();                                            // privatisations datées → soirées privées au planning
     renderShell();
     renderPage(true);

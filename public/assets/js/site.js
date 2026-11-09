@@ -187,8 +187,9 @@
   }
 
   /* ---------- La carte + nos menus ---------- */
-  const CATS = ['Plats', 'Softs', 'Cocktails', 'Desserts'];
-  const SINGULAR = { 'Plats': 'Plat', 'Softs': 'Soft', 'Cocktails': 'Cocktail', 'Desserts': 'Dessert' };
+  const CATS = ['Plats', 'Desserts', 'Cocktails', 'Mocktails', 'Vins & Champagne'];
+  const SINGULAR = { 'Plats': 'Plat', 'Desserts': 'Dessert', 'Cocktails': 'Cocktail', 'Mocktails': 'Mocktail', 'Vins & Champagne': 'Cave' };
+  const flagHtml = (m) => (m.drapeau ? ` <span class="flag" role="img" aria-label="Origine">${esc(m.drapeau)}</span>` : '');
   let currentCat = 'Tout';
   let renderedMenu = '';
   function menuFilters() {
@@ -229,7 +230,7 @@
       <article class="prod" data-cat="${esc(m.categorie)}" data-reveal style="--d:${(i % 4) * 70}ms">
         <div class="prod-card card" data-tilt="10">
           <div class="viz viz-emoji" style="--hue:${Number(m.hue) || hueFor(m.nom)}"><span class="prod-tag">${SINGULAR[m.categorie] || esc(m.categorie)}</span><span class="em" aria-hidden="true">${esc(m.emoji || '🍽️')}</span></div>
-          <div class="prod-meta"><b>${esc(m.nom)}</b><span class="price">${esc(m.prix)} $</span></div>
+          <div class="prod-meta"><b>${esc(m.nom)}${flagHtml(m)}</b><span class="price">${esc(m.prix)} $</span></div>
           ${m.desc ? `<p class="prod-desc">${esc(m.desc)}</p>` : ''}
         </div>
       </article>`).join('');
@@ -557,7 +558,7 @@
   Motion.init({ cursor: true });
 
   loadPublic().then((d) => {
-    if (Array.isArray(d.menu) && d.menu.length) renderMenu(d.menu);
+    if (Array.isArray(d.menu) && d.menu.length) renderMenu(CLUB.upgradeMenu(d.menu)); // ancienne carte enregistrée → nouvelle
     renderEvents(Array.isArray(d.events) ? d.events : []);
   });
 

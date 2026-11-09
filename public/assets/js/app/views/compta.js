@@ -186,7 +186,9 @@ function renderMenuSales(week, editable) {
   const fiche = comptaSales(week, 'carte');
   if (fiche.length) {
     let grand = 0;
-    const cards = MENU_CATEGORIES.map((cat) => {
+    // catégories de la carte + celles d'anciennes ventes (ex : « Softs » de l'ancienne carte)
+    const cats = MENU_CATEGORIES.concat([...new Set(fiche.map((s) => s.categorie).filter((c) => c && !MENU_CATEGORIES.includes(c)))]);
+    const cards = cats.map((cat) => {
       const per = new Map();
       fiche.filter((s) => s.categorie === cat).forEach((s) => {
         const it = per.get(s.nom) || { nom: s.nom, prix: s.prix, qty: 0, total: 0 };

@@ -9,7 +9,7 @@
 <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Yellowtail&family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Yellowtail&family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600&family=Noto+Color+Emoji&display=swap" rel="stylesheet">
 <script>(function(){document.documentElement.classList.add('js');var t='dark';try{t=sessionStorage.getItem('pacific:theme')||'dark';}catch(e){}document.documentElement.dataset.theme=t;})();</script>
 <!-- Développement uniquement : simulateur de la base partagée (inactif en ligne) -->
 <script>try{if(localStorage.getItem('pacific:mock')==='1'){window.__pacificMock=new Promise(function(r){window.__pacificMockResolve=r});document.write('<script type="importmap">{"imports":{"@netlify/blobs":"/dev/blobs-stub.js","node:crypto":"/dev/crypto-stub.js"}}<\/script><script type="module" src="/dev/mock-api.js"><\/script>');}}catch(e){}</script>
@@ -188,10 +188,11 @@
       </a>
 
       <div class="cat-pills" id="catPills">
-        <a class="pill" href="#carte" data-filter="Plats"><span class="pi">🍔</span>Plats</a>
-        <a class="pill" href="#carte" data-filter="Softs"><span class="pi">🥤</span>Softs</a>
-        <a class="pill" href="#carte" data-filter="Cocktails"><span class="pi">🍹</span>Cocktails</a>
+        <a class="pill" href="#carte" data-filter="Plats"><span class="pi">🍽️</span>Plats</a>
         <a class="pill" href="#carte" data-filter="Desserts"><span class="pi">🍰</span>Desserts</a>
+        <a class="pill" href="#carte" data-filter="Cocktails"><span class="pi">🍸</span>Cocktails</a>
+        <a class="pill" href="#carte" data-filter="Mocktails"><span class="pi">🍹</span>Mocktails</a>
+        <a class="pill" href="#carte" data-filter="Vins &amp; Champagne"><span class="pi">🍷</span>Vins</a>
         <a class="pill" href="#menus"><span class="pi">🥂</span>Nos menus</a>
         <a class="pill" href="#membres"><span class="pi">🌴</span>Cartes membres</a>
         <a class="pill" href="#evenements"><span class="pi">🎉</span>Événements</a>
@@ -223,7 +224,7 @@
           <span class="eyebrow" data-reveal><span class="ey-ic"></span>La carte</span>
           <h2 class="h2" data-split>La carte du Pacific Bluffs.</h2>
         </div>
-        <p class="sec-sub" data-reveal>Plats, softs, cocktails et desserts signés Pacific Bluffs, servis au bar toute la soirée, les pieds dans le sable.</p>
+        <p class="sec-sub" data-reveal>Plats et desserts du monde entier, cocktails, mocktails, vins et champagne, servis au bar toute la soirée, les pieds dans le sable.</p>
       </div>
       <div class="filters" id="menuFilters" role="tablist" aria-label="Catégories de la carte">
         <span class="filter-ind" id="filterInd"></span>

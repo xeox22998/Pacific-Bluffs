@@ -87,7 +87,17 @@ function inkOn(hex) {
   return lum > 0.62 ? '#1c0b26' : '#ffffff';
 }
 /* Carte en vigueur : celle modifiée par la direction, sinon la carte par défaut */
-function menuItems() { return (DB && Array.isArray(DB.menu) && DB.menu.length) ? DB.menu : CLUB.MENU; }
+function menuItems() { return (DB && Array.isArray(DB.menu) && DB.menu.length) ? CLUB.upgradeMenu(DB.menu) : CLUB.MENU; }
+/* Nouvelle carte (club-data.js) : la carte enregistrée est remplacée une fois, à la connexion de la direction
+   (en mode local, par n'importe quel compte : les données sont dans le navigateur) */
+function upgradeCarte() {
+  if (!DB || !Array.isArray(DB.menu) || !DB.menu.length) return;
+  const up = CLUB.upgradeMenu(DB.menu);
+  if (up === DB.menu || (isShared() && !isDirection())) return;
+  DB.menu = up;
+  logActivity('Carte mise à jour', 'Nouvelle carte du Pacific Bluffs');
+  saveSoon();
+}
 
 
 function defaultRevenueRows() { return REVENUE_CATS.map((c) => ({ categorie: c, lun: 0, mar: 0, mer: 0, jeu: 0, ven: 0, sam: 0, dim: 0, autre: 0 })); }

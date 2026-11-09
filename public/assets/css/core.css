@@ -122,6 +122,9 @@ h1,h2,h3,h4,p{margin:0}
 ::selection{background:var(--sun);color:var(--on-sun)}
 :focus-visible{outline:2px solid var(--sun);outline-offset:3px}
 [hidden]{display:none !important}
+/* Drapeau à côté du nom d'un article de la carte (police couleur : les drapeaux s'affichent aussi sous Windows) */
+.flag{font-family:'Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji',sans-serif;font-weight:400;letter-spacing:0;white-space:nowrap;font-size:1.05em;line-height:1;vertical-align:-.06em;margin-left:.15em}
+.flag-in{font-family:var(--font),'Noto Color Emoji',sans-serif}
 
 .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
 .muted{color:var(--muted)}

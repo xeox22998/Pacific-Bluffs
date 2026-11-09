@@ -55,7 +55,7 @@ function renderCarte() {
     <article class="carte-item card lift ${m.dispo === false ? 'off' : ''}">
       <div class="viz viz-emoji" style="--hue:${Number(m.hue) || hueFor(m.nom)}"><span class="em" aria-hidden="true">${esc(m.emoji || '🍽️')}</span>${m.dispo === false ? '<span class="ci-off">Indisponible</span>' : ''}</div>
       <div class="ci-body">
-        <div class="ci-top"><b>${esc(m.nom)}</b><span class="price-tag">${fmtMoney(m.prix)}</span></div>
+        <div class="ci-top"><b>${esc(m.nom)}${m.drapeau ? ` <span class="flag" role="img" aria-label="Origine">${esc(m.drapeau)}</span>` : ''}</b><span class="price-tag">${fmtMoney(m.prix)}</span></div>
         ${m.desc ? `<p>${esc(m.desc)}</p>` : ''}
         ${edit ? `<div class="ci-actions">${itemActions(m)}</div>` : ''}
       </div>
@@ -81,8 +81,9 @@ function openItemModal(id) {
       <div class="field"><label for="miCat">Catégorie</label><select class="input" id="miCat" onchange="document.getElementById('miCompoWrap').hidden=this.value!=='Menus'">${MENU_CATEGORIES.map((c) => `<option ${m.categorie === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
       <div class="field"><label for="miEmoji">Émoji (visuel)</label><input class="input" id="miEmoji" value="${esc(m.emoji || '')}" maxlength="4"></div>
     </div>
-    <div class="field"><label for="miDesc">${m.categorie === 'Menus' ? 'Phrase de présentation' : 'Ingrédients / description'}</label><textarea class="input" id="miDesc" style="min-height:80px">${esc(m.desc || '')}</textarea></div>
-    <div class="field" id="miCompoWrap" ${m.categorie === 'Menus' ? '' : 'hidden'}><label for="miCompo">Composition du menu (une ligne par élément, « Libellé : valeur »)</label><textarea class="input" id="miCompo" style="min-height:100px" placeholder="Softs : 3 au choix">${esc(compoTxt)}</textarea></div>`,
+    <div class="field"><label for="miFlag">Drapeau à côté du nom (facultatif)</label><input class="input flag-in" id="miFlag" value="${esc(m.drapeau || '')}" maxlength="20" placeholder="ex : 🇮🇹"></div>
+    <div class="field"><label for="miDesc">${m.categorie === 'Menus' ? 'Phrase de présentation' : 'Description (facultatif)'}</label><textarea class="input" id="miDesc" style="min-height:80px">${esc(m.desc || '')}</textarea></div>
+    <div class="field" id="miCompoWrap" ${m.categorie === 'Menus' ? '' : 'hidden'}><label for="miCompo">Composition du menu (une ligne par élément, « Libellé : valeur »)</label><textarea class="input" id="miCompo" style="min-height:100px" placeholder="Mocktails : 3 au choix">${esc(compoTxt)}</textarea></div>`,
     `<button class="btn btn-sm btn-ghost" type="button" data-close-modal>Annuler</button><button class="btn btn-sm btn-sun" type="button" onclick="saveItem('${id || ''}')">Enregistrer</button>`);
 }
 function saveItem(id) {
@@ -92,6 +93,7 @@ function saveItem(id) {
   const data = {
     nom, categorie, prix: Math.max(0, Number(document.getElementById('miPrix').value) || 0),
     emoji: document.getElementById('miEmoji').value.trim() || CLUB.MENU_ICONS[categorie] || '',
+    drapeau: document.getElementById('miFlag').value.trim(),
     desc: document.getElementById('miDesc').value.trim(),
   };
   if (categorie === 'Menus') {
