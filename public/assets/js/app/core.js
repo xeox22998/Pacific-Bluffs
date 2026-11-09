@@ -23,6 +23,8 @@ function normalizeDB() {
   });
   if (!Array.isArray(DB.menu) || !DB.menu.length) DB.menu = null;
   if (!Array.isArray(DB.couleurs) || !DB.couleurs.length) DB.couleurs = null;
+  if (!Array.isArray(DB.cartes) || !DB.cartes.length) DB.cartes = null; // cartes membres d'origine
+  if (!Array.isArray(DB.cocons)) DB.cocons = null;                      // cocons d'origine (une liste vide reste vide)
 }
 function loadDB() {
   const raw = storageGet(STORAGE_KEY);
@@ -52,7 +54,7 @@ function saveSoon() {
 
 /* ---------------- Base partagée : synchronisation ---------------- */
 const SYNC_COLS = ['users', 'events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales'];
-const SYNC_WHOLE = ['postes', 'menu', 'couleurs'];
+const SYNC_WHOLE = ['postes', 'menu', 'couleurs', 'cartes', 'cocons'];
 let SNAP = null;
 let SERVER_VERSION = 0;
 let syncing = false;

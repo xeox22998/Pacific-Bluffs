@@ -1,8 +1,8 @@
 /* =====================================================================
    PACIFIC BLUFFS — Ventes : fiches de ventes des employés + dossier salaires
    - Chaque employé note ses ventes sur trois fiches : la carte, l'hospitalité
-     (entrées en soirée, hébergements) et les cartes VIP. Chaque vente est
-     enregistrée tout de suite.
+     (entrées en soirée, cocons paradisiaques pour 2 avec les deux noms) et
+     les cartes VIP. Chaque vente est enregistrée tout de suite.
    - Journée de service de 6h à 6h (heure de Paris). À 6h du matin, les ventes
      de la soirée passent automatiquement dans la comptabilité (Bar & boissons,
      Entrées soirées, Hébergements, Cartes membres) et dans le dossier salaires.
@@ -18,7 +18,7 @@ let VENTE_DAY = null;          // journée de service affichée
 let VENTE_TYPE = 'carte';      // fiche affichée
 let VENTE_SELLER = null;       // 'me', 'all' ou l'identifiant d'un compte
 let DOSSIER_WEEK = null;       // lundi de la semaine affichée dans le dossier salaires
-const VENTE_LAST = { carte: '', hospKind: 'Entrée', hospLabel: {}, hospPrix: {}, tier: 'Green' };
+const VENTE_LAST = { carte: '', hospKind: 'Entrée', hospLabel: {}, hospPrix: {}, cocon: '', tier: 'Green' };
 let VENTE_CLOCK_DAY = null;
 
 function canSeeAllSales() { return [ROLES.DIRECTION, ROLES.SECRETAIRE, ROLES.MANAGER, ROLES.GOUVERNEMENT].includes(CURRENT_USER.role); }
@@ -64,7 +64,7 @@ function renderVentes() {
   const today = serviceDay();
   if (VENTE_USER !== CURRENT_USER.id) {
     VENTE_USER = CURRENT_USER.id; VENTE_DAY = null; VENTE_SELLER = null; DOSSIER_WEEK = null; VENTE_TYPE = 'carte';
-    Object.assign(VENTE_LAST, { carte: '', hospKind: 'Entrée', hospLabel: {}, hospPrix: {}, tier: 'Green' });
+    Object.assign(VENTE_LAST, { carte: '', hospKind: 'Entrée', hospLabel: {}, hospPrix: {}, cocon: '', tier: 'Green' });
   }
   if (!VENTE_DAY || VENTE_DAY > today) VENTE_DAY = today;
   if (VENTE_SELLER === null || !canSeeAllSales()) VENTE_SELLER = canSeeAllSales() ? 'all' : 'me';
@@ -147,8 +147,9 @@ function renderSaleSheet(list) {
     ? `En cours · passe en comptabilité (« ${t.compta} ») à 6h`
     : `Transférée en comptabilité (« ${t.compta} ») le ${fmtDate(next).toLowerCase()} à 6h${noWeek ? ' — la semaine comptable n\'existe pas encore : les ventes y apparaîtront dès sa création' : ''}`;
   if (isHosp && list.length) {
-    const heb = sumSales(list.filter((s) => hospKind(s) === 'Hébergement'));
-    status += ` · entrées ${fmtMoney(total - heb)}, hébergements ${fmtMoney(heb)}`;
+    const by = (k) => sumSales(list.filter((s) => hospKind(s) === k));
+    const heb = by('Hébergement'); // anciennes ventes seulement
+    status += ` · entrées ${fmtMoney(by('Entrée'))}, cocons ${fmtMoney(by('Cocon'))}${heb ? `, hébergements ${fmtMoney(heb)}` : ''}`;
   }
   const rows = list.slice().sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
 
@@ -160,8 +161,8 @@ function renderSaleSheet(list) {
     <div class="bs-head"><div><b>${t.emoji} ${t.long} — ${esc(saleDayLabel(VENTE_DAY).toLowerCase())}</b><small>${esc(status)}</small></div>
       <div class="bs-total">${fmtMoney(total)}<small>part ${COMMISSION_PCT} % : ${fmtMoney(commissionOf(total))}</small></div></div>
     ${form}
-    ${rows.length ? `<div class="table-scroll"><table class="tbl compact bs-tbl"><thead><tr><th>Heure</th>${showSeller ? '<th>Vendeur</th>' : ''}<th>${isCard ? 'Carte' : isHosp ? 'Prestation' : 'Article'}</th>${showClient ? '<th>Client</th>' : ''}<th class="num">${isHosp ? 'Qté / nuits' : 'Qté'}</th><th class="num">Prix</th><th class="num">Total</th><th class="num">Part ${COMMISSION_PCT} %</th><th></th></tr></thead><tbody>
-      ${rows.map((s) => `<tr><td>${esc(s.heure || '—')}</td>${showSeller ? `<td>${esc(userLabel(s.userId))}</td>` : ''}<td class="strong">${isHosp ? `<span class="hosp-tag ${hospKind(s) === 'Hébergement' ? 'heb' : ''}">${hospKind(s) === 'Hébergement' ? '🏨 Hébergement' : '🎟️ Entrée'}</span>` : ''}${esc(s.nom)}</td>${showClient ? `<td>${esc(s.client || '—')}</td>` : ''}
+    ${rows.length ? `<div class="table-scroll"><table class="tbl compact bs-tbl"><thead><tr><th>Heure</th>${showSeller ? '<th>Vendeur</th>' : ''}<th>${isCard ? 'Carte' : isHosp ? 'Prestation' : 'Article'}</th>${showClient ? '<th>Client</th>' : ''}<th class="num">Qté</th><th class="num">Prix</th><th class="num">Total</th><th class="num">Part ${COMMISSION_PCT} %</th><th></th></tr></thead><tbody>
+      ${rows.map((s) => `<tr><td>${esc(s.heure || '—')}</td>${showSeller ? `<td>${esc(userLabel(s.userId))}</td>` : ''}<td class="strong">${isHosp ? `<span class="hosp-tag ${({ 'Hébergement': 'heb', 'Cocon': 'coc' })[hospKind(s)] || ''}">${HOSP_TAGS[hospKind(s)]}</span>` : ''}${esc(s.nom)}</td>${showClient ? `<td>${esc(saleClients(s) || '—')}</td>` : ''}
         <td class="num">${Number(s.qty) || 0}</td><td class="num">${fmtMoney(Number(s.prix) || 0)}</td><td class="num strong">${fmtMoney(saleTotal(s))}</td><td class="num">${fmtMoney(commissionOf(saleTotal(s)))}</td>
         <td>${canRemoveSale(s) ? `<button class="icon-btn xs" type="button" onclick="removeVente('${s.id}')" aria-label="Retirer cette vente">${icon('x', 'sm')}</button>` : ''}</td></tr>`).join('')}
       </tbody><tfoot><tr><td colspan="${(showSeller ? 5 : 4) + (showClient ? 1 : 0)}" class="strong">Total</td><td class="num strong">${fmtMoney(total)}</td><td class="num strong">${fmtMoney(commissionOf(total))}</td><td></td></tr></tfoot></table></div>`
@@ -180,22 +181,34 @@ function saleForm() {
       .map((u) => `<option value="${u.id}" ${u.id === def ? 'selected' : ''}>${esc(fullName(u))}${u.id === CURRENT_USER.id ? ' (moi)' : ''}</option>`).join('')}</select>`;
   }
   if (VENTE_TYPE === 'hospitalite') {
-    // Entrée en soirée ou hébergement (nuits au resort, avec le nom du client)
-    const kind = HOSP_KINDS.includes(VENTE_LAST.hospKind) ? VENTE_LAST.hospKind : 'Entrée';
-    const heb = kind === 'Hébergement';
+    // Entrée en soirée ou cocon paradisiaque (chambre pour 2, deux noms de clients)
+    const kind = HOSP_CHOICES.includes(VENTE_LAST.hospKind) ? VENTE_LAST.hospKind : 'Entrée';
     const sugg = ((CLUB.HOSPITALITE || {})[kind] || []);
+    const segLabels = { 'Entrée': '🎟️ Entrée soirée', 'Cocon': '🌺 Cocon paradisiaque' };
+    const seg = `<div class="seg" role="radiogroup" aria-label="Type de prestation">${HOSP_CHOICES.map((k) => `<button class="seg-btn ${k === kind ? 'is-on' : ''}" type="button" role="radio" aria-checked="${k === kind}" onclick="setHospKind('${k}')">${segLabels[k]}</button>`).join('')}</div>`;
+    if (kind === 'Cocon') {
+      // Prix fixe de la liste des cocons (modifiable par la direction dans « La carte »), deux noms de clients
+      const list = coconsList().filter((c) => c && c.dispo !== false);
+      return `<div class="bs-add">${seller}${seg}
+        <select class="input bs-label" id="svCocon" aria-label="Cocon vendu">${list.length
+          ? list.map((c) => `<option value="${esc(c.id)}" ${c.id === VENTE_LAST.cocon ? 'selected' : ''}>${esc(c.nom)}${c.desc ? ' · ' + esc(c.desc) : ''} — ${fmtMoney(c.prix)}</option>`).join('')
+          : '<option value="">Aucun cocon disponible</option>'}</select>
+        <input class="input bs-client" id="svClient" maxlength="60" placeholder="Nom du client 1" aria-label="Nom du premier client" ${enter}>
+        <input class="input bs-client" id="svClient2" maxlength="60" placeholder="Nom du client 2" aria-label="Nom du deuxième client" ${enter}>
+        <input class="input bs-qty" id="svQty" type="number" min="1" max="999" step="1" value="1" aria-label="Quantité" title="Quantité" ${enter}>
+        ${add}</div>`;
+    }
     return `<div class="bs-add">${seller}
-      <div class="seg" role="radiogroup" aria-label="Type de prestation">${HOSP_KINDS.map((k) => `<button class="seg-btn ${k === kind ? 'is-on' : ''}" type="button" role="radio" aria-checked="${k === kind}" onclick="setHospKind('${k}')">${k === 'Hébergement' ? '🏨 Hébergement' : '🎟️ Entrée soirée'}</button>`).join('')}</div>
-      <input class="input bs-label" id="svLabel" list="svHospList" maxlength="80" placeholder="${heb ? 'Hébergement (ex : nuit — suite vue mer)' : 'Entrée (ex : entrée soirée à thème)'}" value="${esc(VENTE_LAST.hospLabel[kind] || sugg[0] || '')}" aria-label="Prestation" ${enter}>
+      ${seg}
+      <input class="input bs-label" id="svLabel" list="svHospList" maxlength="80" placeholder="Entrée (ex : entrée soirée à thème)" value="${esc(VENTE_LAST.hospLabel[kind] || sugg[0] || '')}" aria-label="Prestation" ${enter}>
       <datalist id="svHospList">${sugg.map((o) => `<option value="${esc(o)}"></option>`).join('')}</datalist>
-      ${heb ? `<input class="input bs-client" id="svClient" maxlength="60" placeholder="Nom du client" aria-label="Nom du client" ${enter}>` : ''}
-      <input class="input bs-price" id="svPrice" type="number" min="1" step="1" placeholder="${heb ? 'Prix / nuit ($)' : 'Prix ($)'}" value="${esc(VENTE_LAST.hospPrix[kind] || '')}" aria-label="${heb ? 'Prix par nuit en dollars' : 'Prix unitaire en dollars'}" ${enter}>
-      <input class="input bs-qty" id="svQty" type="number" min="1" max="999" step="1" value="1" aria-label="${heb ? 'Nombre de nuits' : "Nombre d'entrées"}" title="${heb ? 'Nombre de nuits' : "Nombre d'entrées"}" ${enter}>
+      <input class="input bs-price" id="svPrice" type="number" min="1" step="1" placeholder="Prix ($)" value="${esc(VENTE_LAST.hospPrix[kind] || '')}" aria-label="Prix unitaire en dollars" ${enter}>
+      <input class="input bs-qty" id="svQty" type="number" min="1" max="999" step="1" value="1" aria-label="Nombre d'entrées" title="Nombre d'entrées" ${enter}>
       ${add}</div>`;
   }
   if (VENTE_TYPE === 'carteVip') {
     return `<div class="bs-add">${seller}
-      <select class="input bs-tier" id="svTier" aria-label="Carte vendue">${CLUB.MEMBERSHIP.map((t) => `<option value="${t.key}" ${t.key === VENTE_LAST.tier ? 'selected' : ''}>Carte ${t.key} · ${fmtMoney(MEMBERSHIP_PRICES[t.key])}</option>`).join('')}</select>
+      <select class="input bs-tier" id="svTier" aria-label="Carte vendue">${membershipTiers().map((t) => `<option value="${t.key}" ${t.key === VENTE_LAST.tier ? 'selected' : ''}>Carte ${esc(t.nom)} · ${fmtMoney(t.prix)}</option>`).join('')}</select>
       <input class="input bs-label" id="svClient" maxlength="60" placeholder="Nom du client (carte nominative)" aria-label="Nom du client" ${enter}>
       ${add}</div>`;
   }
@@ -212,7 +225,7 @@ function saleForm() {
 function selectVenteDay(d) { if (!/^\d{4}-\d{2}-\d{2}$/.test(d || '')) return; VENTE_DAY = d > serviceDay() ? serviceDay() : d; DOSSIER_WEEK = mondayOf(VENTE_DAY); renderPage(false); }
 function selectVenteType(t) { VENTE_TYPE = saleTypeInfo(t).id; renderPage(false); }
 function setVenteSeller(v) { VENTE_SELLER = v || 'all'; renderPage(false); }
-function setHospKind(k) { VENTE_LAST.hospKind = HOSP_KINDS.includes(k) ? k : 'Entrée'; renderPage(false); setTimeout(() => { const el = document.getElementById('svPrice'); if (el) el.focus(); }, 60); }
+function setHospKind(k) { VENTE_LAST.hospKind = HOSP_CHOICES.includes(k) ? k : 'Entrée'; renderPage(false); setTimeout(() => { const el = document.getElementById(k === 'Cocon' ? 'svClient' : 'svPrice'); if (el) el.focus(); }, 60); }
 /* Depuis la comptabilité : ouvrir la fiche d'un jour */
 function openVentesDay(date, type) {
   if (date) { VENTE_DAY = date; DOSSIER_WEEK = mondayOf(date); }
@@ -234,24 +247,32 @@ function addVente() {
     if (!(qty >= 1 && qty <= 999)) { toast('Indiquez une quantité (1 à 999).', 'error'); return; }
     rec = { itemId: item.id, nom: item.nom, categorie: item.categorie, prix: Number(item.prix) || 0, qty };
     VENTE_LAST.carte = item.id; focus = 'svItem';
+  } else if (type === 'hospitalite' && VENTE_LAST.hospKind === 'Cocon') {
+    // Cocon paradisiaque : prix de la liste, deux noms de clients
+    const c = coconsList().find((x) => x && x.id === val('svCocon') && x.dispo !== false);
+    const qty = Math.round(Number(val('svQty')));
+    const client = val('svClient').trim().slice(0, 60), client2 = val('svClient2').trim().slice(0, 60);
+    if (!c) { toast('Choisissez le cocon vendu.', 'error'); return; }
+    if (!client) { toast('Indiquez le nom du client (et celui du deuxième client : chambre pour 2).', 'error'); return; }
+    if (!(qty >= 1 && qty <= 999)) { toast('Indiquez une quantité (1 à 999).', 'error'); return; }
+    rec = { itemId: c.id, nom: c.nom, categorie: 'Cocon', prix: Number(c.prix) || 0, qty, client };
+    if (client2) rec.client2 = client2;
+    VENTE_LAST.cocon = c.id; focus = 'svClient';
   } else if (type === 'hospitalite') {
-    const kind = HOSP_KINDS.includes(VENTE_LAST.hospKind) ? VENTE_LAST.hospKind : 'Entrée';
-    const heb = kind === 'Hébergement';
-    const label = val('svLabel').trim().slice(0, 80) || (heb ? 'Hébergement' : 'Entrée soirée');
+    // Entrée en soirée (seul autre choix de la fiche hospitalité)
+    const label = val('svLabel').trim().slice(0, 80) || 'Entrée soirée';
     const prix = Math.round(Number(val('svPrice')) * 100) / 100;
     const qty = Math.round(Number(val('svQty')));
-    const client = val('svClient').trim().slice(0, 60);
-    if (!(prix > 0 && prix <= 1000000)) { toast(heb ? 'Indiquez le prix de la nuit (en $).' : "Indiquez le prix de l'entrée (en $).", 'error'); return; }
-    if (!(qty >= 1 && qty <= 999)) { toast(heb ? 'Indiquez le nombre de nuits (1 à 999).' : "Indiquez le nombre d'entrées (1 à 999).", 'error'); return; }
-    rec = { nom: label, categorie: kind, prix, qty };
-    if (client) rec.client = client;
-    VENTE_LAST.hospLabel[kind] = label; VENTE_LAST.hospPrix[kind] = String(prix); focus = 'svPrice';
+    if (!(prix > 0 && prix <= 1000000)) { toast("Indiquez le prix de l'entrée (en $).", 'error'); return; }
+    if (!(qty >= 1 && qty <= 999)) { toast("Indiquez le nombre d'entrées (1 à 999).", 'error'); return; }
+    rec = { nom: label, categorie: 'Entrée', prix, qty };
+    VENTE_LAST.hospLabel['Entrée'] = label; VENTE_LAST.hospPrix['Entrée'] = String(prix); focus = 'svPrice';
   } else {
-    const tier = CLUB.MEMBERSHIP.find((t) => t.key === val('svTier'));
+    const tier = membershipTiers().find((t) => t.key === val('svTier'));
     const client = val('svClient').trim().slice(0, 60);
     if (!tier) { toast('Choisissez la carte vendue.', 'error'); return; }
     if (!client) { toast('Indiquez le nom du client : les cartes sont nominatives.', 'error'); return; }
-    rec = { nom: 'Carte ' + tier.key, categorie: tier.key, client, prix: Number(MEMBERSHIP_PRICES[tier.key]) || 0, qty: 1 };
+    rec = { nom: 'Carte ' + tier.nom, categorie: tier.key, client, prix: Number(tier.prix) || 0, qty: 1 };
     VENTE_LAST.tier = tier.key; focus = 'svClient';
   }
   DB.barSales.push({ id: uid('vt'), type, date, day: dayKeyOf(date), userId: sellerId, ...rec, heure: nowHM(), createdAt: new Date().toISOString() });
@@ -347,7 +368,7 @@ function exportDossierCSV() {
   salesBySeller(sales).forEach((x) => lines.push([q(userLabel(x.userId)), x.carte, x.hospitalite, x.carteVip, x.total, x.commission, pend.get(x.userId) || 0].join(';')));
   lines.push('');
   lines.push(['Soirée', 'Heure', 'Vendeur', 'Fiche', 'Article', 'Client', 'Quantité', 'Prix', 'Total', `Part ${COMMISSION_PCT} %`, 'État'].map(q).join(';'));
-  sales.forEach((s) => lines.push([q(s.date), q(s.heure), q(userLabel(s.userId)), q(saleTypeInfo(saleType(s)).label + (saleType(s) === 'hospitalite' ? ' — ' + hospKind(s) : '')), q(s.nom), q(s.client || ''), Number(s.qty) || 0, Number(s.prix) || 0, saleTotal(s), commissionOf(saleTotal(s)), q(isSaleTransferred(s) ? 'Transféré' : 'En cours')].join(';')));
+  sales.forEach((s) => lines.push([q(s.date), q(s.heure), q(userLabel(s.userId)), q(saleTypeInfo(saleType(s)).label + (saleType(s) === 'hospitalite' ? ' — ' + hospKind(s) : '')), q(s.nom), q(saleClients(s)), Number(s.qty) || 0, Number(s.prix) || 0, saleTotal(s), commissionOf(saleTotal(s)), q(isSaleTransferred(s) ? 'Transféré' : 'En cours')].join(';')));
   downloadFile(`pacific-bluffs-dossier-salaires-${from}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
   logActivity('Export du dossier salaires', `Semaine du ${fmtDateShort(from)}`);
 }

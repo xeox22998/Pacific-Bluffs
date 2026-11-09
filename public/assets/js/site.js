@@ -372,7 +372,7 @@
     if (mode === 'shared') {
       try { return await ClubApi.req('public'); } catch (e) { /* on retombe sur les données locales */ }
     }
-    const out = { events: [], menu: null };
+    const out = { events: [], menu: null, cartes: null };
     try {
       const db = JSON.parse(localStorage.getItem('pacific:data') || 'null');
       if (db) {
@@ -383,25 +383,32 @@
           .sort((a, b) => (a.date + (a.heureDebut || '')).localeCompare(b.date + (b.heureDebut || ''))).slice(0, 12)
           .map((e) => ({ id: e.id, nom: e.nom, date: e.date, heureDebut: e.heureDebut, texte: e.descPublic || '', categorie: cat(e), affiche: e.afficheData || '' }));
         if (Array.isArray(db.menu) && db.menu.length) out.menu = db.menu;
+        if (Array.isArray(db.cartes) && db.cartes.length) out.cartes = db.cartes;
       }
     } catch (e) { /* stockage indisponible */ }
     return out;
   }
 
 
-  /* ---------- Cartes membres ---------- */
-  function members() {
-    $('#tiersGrid').innerHTML = CLUB.MEMBERSHIP.map((t) => `
+  /* ---------- Cartes membres (tarifs et avantages modifiables par la direction) ---------- */
+  let renderedTiers = '';
+  function members(tiers) {
+    const key = JSON.stringify(tiers);
+    if (key === renderedTiers) return;
+    const first = !renderedTiers;
+    renderedTiers = key;
+    $('#tiersGrid').innerHTML = tiers.map((t) => `
       <article class="tier-neon ${t.cls}" data-reveal="rise">
         <div class="tn-in">
           <div class="tn-head">
-            <div class="tn-name">${esc(t.key.toUpperCase())}</div>
+            <div class="tn-name">${esc(String(t.nom || t.key).toUpperCase())}</div>
             <div class="tn-price">${t.prix.toLocaleString('fr-FR')} $ <small>/ semaine</small></div>
             <div class="tn-sub">${esc(t.acces)}</div>
           </div>
           <ul class="tn-list">${t.perks.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
         </div>
       </article>`).join('');
+    if (!first) $$('#tiersGrid .tier-neon').forEach((el) => el.classList.add('is-in'));
   }
 
   /* ---------- Direction ---------- */
@@ -549,7 +556,7 @@
   weekStrip();
   menuFilters();
   renderMenu(CLUB.MENU);
-  members();
+  members(CLUB.MEMBERSHIP);
   direction();
   linkHelpers();
   titleLetters();
@@ -559,6 +566,7 @@
 
   loadPublic().then((d) => {
     if (Array.isArray(d.menu) && d.menu.length) renderMenu(CLUB.upgradeMenu(d.menu)); // ancienne carte enregistrée → nouvelle
+    if (Array.isArray(d.cartes) && d.cartes.length) members(CLUB.membershipTiers(d.cartes));
     renderEvents(Array.isArray(d.events) ? d.events : []);
   });
 

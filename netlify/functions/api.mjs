@@ -29,7 +29,8 @@ const SUB_ROLES = {
 };
 const validSubRole = (role, v) => ((SUB_ROLES[role] || []).includes(v) ? v : '');
 const COLS = ['users', 'events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales'];
-const WHOLE = ['postes', 'menu', 'couleurs'];
+// listes enregistrées d'un bloc : carte, cartes membres (tarifs, avantages) et cocons paradisiaques modifiés par la direction
+const WHOLE = ['postes', 'menu', 'couleurs', 'cartes', 'cocons'];
 const POSTER_MAX = 3000000; // affiche compressée par le navigateur : ~2 Mo maximum
 // Pièces jointes des fiches de l'équipe (privées : jamais servies au public)
 const PIECES = ['permis', 'identite', 'arme'];
@@ -56,8 +57,18 @@ async function readBody(req) { try { return (await req.json()) || {}; } catch (e
    Journée de service de 6h à 6h, heure de Paris : à 6h elle passe en comptabilité
    et se ferme pour les employés (10 min de battement pour une vente notée à 5h59). */
 const SALE_TYPES = ['carte', 'hospitalite', 'carteVip'];
-const HOSP_KINDS = ['Entrée', 'Hébergement']; // fiche hospitalité : entrées en soirée, hébergements
-const CARD_PRICES = { Green: 1000, Gold: 2000, Platinum: 4000 }; // identiques à CLUB.MEMBERSHIP_PRICES (public/assets/js/club-data.js)
+// fiche hospitalité : entrées en soirée et cocons paradisiaques (pour 2) ; « Hébergement » n'est plus
+// proposé par l'espace staff mais reste accepté pour les ventes déjà notées (corrections de la compta)
+const HOSP_KINDS = ['Entrée', 'Hébergement', 'Cocon'];
+const CARD_PRICES = { Green: 1000, Gold: 2000, Platinum: 4000 }; // tarifs d'origine, identiques à CLUB.MEMBERSHIP_PRICES (public/assets/js/club-data.js)
+const capPrice = (v) => Math.min(1000000, Math.max(0, Math.round((Number(v) || 0) * 100) / 100));
+/* Tarif d'une carte membre : celui choisi par la direction (collection « cartes »), sinon celui d'origine */
+function cardPrice(cartes, key) {
+  if (!CARD_PRICES[key]) return 0;
+  const s = Array.isArray(cartes) ? cartes.find((x) => x && x.key === key) : null;
+  const p = s ? capPrice(s.prix) : 0;
+  return p > 0 ? p : CARD_PRICES[key];
+}
 const parisClock = () => {
   const p = {};
   new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
@@ -70,22 +81,26 @@ function openSaleDays() {
   if (c.min < 360) return [shiftISO(c.date, -1)];
   return c.min < 370 ? [c.date, shiftISO(c.date, -1)] : [c.date];
 }
-/* Prix revérifiés : carte = prix de la carte en vigueur, carte VIP = tarif de la carte,
-   hospitalité = prix noté (plafonné) */
-function normalizeSale(r, menu) {
+/* Prix revérifiés : carte = prix de la carte en vigueur, carte VIP = tarif de la carte en vigueur,
+   cocon = prix de la liste des cocons, entrée / hébergement = prix noté (plafonné) */
+function normalizeSale(r, lists) {
+  const { menu, cartes, cocons } = lists || {};
   const type = SALE_TYPES.includes(r.type) ? r.type : 'carte';
   const out = { ...r, type, qty: Math.min(999, Math.max(1, Math.round(Number(r.qty) || 1))), nom: clean(r.nom, 80) };
   if (r.client !== undefined) out.client = clean(r.client, 60);
+  if (r.client2 !== undefined) out.client2 = clean(r.client2, 60);
   if (type === 'carte') {
     const it = Array.isArray(menu) ? menu.find((m) => m && m.id === r.itemId) : null;
-    out.prix = it ? Number(it.prix) || 0 : Math.min(1000000, Math.max(0, Number(r.prix) || 0));
+    out.prix = it ? Number(it.prix) || 0 : capPrice(r.prix);
   } else if (type === 'carteVip') {
-    out.prix = CARD_PRICES[r.categorie] || 0;
+    out.prix = cardPrice(cartes, r.categorie);
     out.qty = 1;
     if (!out.prix) return null;
   } else {
     out.categorie = HOSP_KINDS.includes(r.categorie) ? r.categorie : 'Entrée';
-    out.prix = Math.min(1000000, Math.max(0, Math.round((Number(r.prix) || 0) * 100) / 100));
+    // cocons d'origine (liste jamais modifiée) : le prix noté par l'espace staff, plafonné
+    const cc = out.categorie === 'Cocon' && Array.isArray(cocons) ? cocons.find((c) => c && c.id === r.itemId) : null;
+    out.prix = cc ? capPrice(cc.prix) : capPrice(r.prix);
   }
   return out;
 }
@@ -111,12 +126,12 @@ async function addLog(store, userId, action, objet) {
   await putCol(store, 'activityLogs', logs.slice(0, 500));
 }
 async function loadAll(store) {
-  const [users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, postes, menu, couleurs, meta] = await Promise.all([
+  const [users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, postes, menu, couleurs, cartes, cocons, meta] = await Promise.all([
     col(store, 'users'), col(store, 'events'), col(store, 'attendances'), col(store, 'accountingWeeks'), col(store, 'documents'),
     col(store, 'activityLogs'), col(store, 'rdv'), col(store, 'barSales'), readJSON(store, 'col:postes', null), readJSON(store, 'col:menu', null),
-    readJSON(store, 'col:couleurs', null), readMeta(store),
+    readJSON(store, 'col:couleurs', null), readJSON(store, 'col:cartes', null), readJSON(store, 'col:cocons', null), readMeta(store),
   ]);
-  return { users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, postes, menu, couleurs, meta };
+  return { users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, postes, menu, couleurs, cartes, cocons, meta };
 }
 /* Type d'une soirée (Grand événement par défaut, sauf les soirées classiques) */
 const eventCat = (e) => e.categorie || (e.nom === 'Soirée classique' ? 'classique' : 'grand');
@@ -188,9 +203,9 @@ async function routeHealth(store) {
   return json({ ok: true, mode: 'shared', initialized: !!meta.initialized, hasUsers: users.length > 0 });
 }
 
-/* Ce que voit le public : événements à venir publiés + carte disponible */
+/* Ce que voit le public : événements à venir publiés + carte disponible + cartes membres */
 async function routePublic(store) {
-  const [events, menu] = await Promise.all([col(store, 'events'), readJSON(store, 'col:menu', null)]);
+  const [events, menu, cartes] = await Promise.all([col(store, 'events'), readJSON(store, 'col:menu', null), readJSON(store, 'col:cartes', null)]);
   const t = todayParis();
   const list = events
     .filter((e) => e && e.date >= t && e.statut !== 'Annulée' && (e.public === true || (e.public === undefined && eventCat(e) === 'grand')))
@@ -200,7 +215,10 @@ async function routePublic(store) {
       id: e.id, nom: e.nom, date: e.date, heureDebut: e.heureDebut || '', heureFin: e.heureFin || '', texte: e.descPublic || '', categorie: eventCat(e),
       affiche: e.affiche ? '/api/poster/' + encodeURIComponent(e.id) + '?v=' + encodeURIComponent(e.affiche) : '',
     }));
-  return json({ today: t, events: list, menu: Array.isArray(menu) ? menu.filter((m) => m && m.dispo !== false) : null }, 200, 'public, max-age=30');
+  return json({
+    today: t, events: list, menu: Array.isArray(menu) ? menu.filter((m) => m && m.dispo !== false) : null,
+    cartes: Array.isArray(cartes) ? cartes.map((c) => ({ key: c && c.key, nom: c && c.nom, prix: c && c.prix, acces: c && c.acces, perks: c && c.perks })) : null,
+  }, 200, 'public, max-age=30');
 }
 
 /* Affiche d'une soirée (image) : l'adresse change à chaque nouvelle affiche, on peut donc la garder en cache */
@@ -288,6 +306,8 @@ async function routeData(store, a) {
     barSales: employe ? all.barSales.filter((s) => s && s.userId === a.user.id) : all.barSales, // l'employé : ses ventes seulement
     menu: all.menu,
     couleurs: all.couleurs,
+    cartes: all.cartes,
+    cocons: all.cocons,
     notifications: [],
   };
   return json({ db, version: all.meta.version || 0, initialized: !!all.meta.initialized, me: publicUser(a.user) });
@@ -304,7 +324,7 @@ async function routeSync(req, store, a) {
     users: [true, D], events: [!G, D || S], attendances: [!G, D || M || S], accountingWeeks: [D || S || M, D || S],
     documents: [D || S || M || G, D], activityLogs: [true, false], rdv: [D || S, D], barSales: [!G, !G],
   };
-  const wholePerms = { postes: D, menu: D, couleurs: D || S };
+  const wholePerms = { postes: D, menu: D, couleurs: D || S, cartes: D, cocons: D };
   const denied = [];
   for (const [name, c] of Object.entries(changes)) {
     if (COLS.includes(name)) {
@@ -326,8 +346,9 @@ async function routeSync(req, store, a) {
           ups = ups.filter((r) => r && r.userId === a.user.id && own(r.id) && isOpen(r) && curOpen(r.id));
           rms = rms.filter((id) => index.has(id) && own(id) && curOpen(id));
         }
-        const menu = ups.length ? await readJSON(store, 'col:menu', null) : null;
-        ups = ups.map((r) => (r && typeof r === 'object' ? normalizeSale(r, menu) : null)).filter(Boolean);
+        const [menu, cartes, cocons] = ups.length
+          ? await Promise.all(['menu', 'cartes', 'cocons'].map((n) => readJSON(store, 'col:' + n, null))) : [null, null, null];
+        ups = ups.map((r) => (r && typeof r === 'object' ? normalizeSale(r, { menu, cartes, cocons }) : null)).filter(Boolean);
         if (ups.length + rms.length < asked) denied.push(name); // l'espace staff recharge alors les vraies données
       }
       for (const rec of ups) {
@@ -541,6 +562,8 @@ async function routeReset(store, a) {
   await store.delete('col:postes');
   await store.delete('col:menu');
   await store.delete('col:couleurs');
+  await store.delete('col:cartes');
+  await store.delete('col:cocons');
   await store.setJSON('sessions', { [a.token]: { userId: a.user.id, exp: Date.now() + SESSION_MS } });
   const meta = await bump(store, { initialized: false });
   return json({ ok: true, version: meta.version });

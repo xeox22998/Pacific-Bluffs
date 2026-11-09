@@ -516,7 +516,7 @@ button.ev-row:hover{background:var(--surface-2);transform:translateX(4px)}
 .bs-add .bs-seller{flex:0 1 230px;min-width:0}
 .bs-add select.bs-tier{flex:0 1 280px}
 .bs-add .bs-client{flex:0 1 200px;min-width:0}
-/* Fiche hospitalité : choix Entrée soirée / Hébergement */
+/* Fiche hospitalité : choix Entrée soirée / Hébergement / Cocon paradisiaque */
 .seg{display:inline-flex;gap:2px;padding:4px;border-radius:var(--r-pill);background:var(--canvas);border:1px solid var(--line);flex-shrink:0}
 .seg-btn{height:38px;padding:0 14px;border-radius:var(--r-pill);font-size:14px;color:var(--muted);white-space:nowrap;transition:background-color .3s,color .3s}
 .seg-btn:hover{color:var(--ink)}
@@ -524,6 +524,8 @@ button.ev-row:hover{background:var(--surface-2);transform:translateX(4px)}
 .hosp-tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;margin-right:8px;border-radius:var(--r-pill);background:var(--sun-soft);color:var(--sun-text);font-size:11px;font-weight:600}
 .hosp-tag.heb{background:rgba(63,208,220,.14);color:var(--lagoon)}
 [data-theme="dark"] .hosp-tag.heb{color:#5fe0ea}
+.hosp-tag.coc{background:rgba(255,79,139,.13);color:#d0306b}
+[data-theme="dark"] .hosp-tag.coc{color:#ff8ab3}
 /* Dossier salaires */
 .dossier{display:grid;grid-template-columns:260px minmax(0,1fr);gap:12px;align-items:start}
 .dossier-sum{padding:20px;display:flex;flex-direction:column;gap:8px;position:relative;isolation:isolate;overflow:hidden;background:var(--night);color:#fff}
@@ -542,8 +544,8 @@ button.ev-row:hover{background:var(--surface-2);transform:translateX(4px)}
   .sale-date{width:100%}
   .bs-add .bs-seller,.bs-add select.bs-tier,.bs-add .bs-client{flex:1 1 100%}
   .bs-add .bs-price{flex:1 1 130px;width:auto}
-  .seg{display:flex;width:100%}
-  .seg-btn{flex:1;padding:0 8px;font-size:13px}
+  .seg{display:flex;width:100%;border-radius:20px}
+  .seg-btn{flex:1;min-width:0;height:auto;min-height:38px;padding:6px;font-size:12.5px;line-height:1.15;white-space:normal;border-radius:16px}
 }.bs-tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
 .bs-tab{flex:1 0 auto;min-width:76px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 10px;border-radius:14px;border:1px solid var(--line);background:var(--surface);cursor:pointer;color:var(--ink)}
 .bs-tab b{font-size:13px;font-weight:600}

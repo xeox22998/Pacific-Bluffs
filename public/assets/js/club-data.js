@@ -44,25 +44,31 @@ window.CLUB = {
 
   /* Part de l'employé sur chacune de ses ventes (onglet Ventes) : c'est son salaire de la semaine */
   COMMISSION_VENTES: 0.25,
-  /* Suggestions de la fiche hospitalité (le prix se tape à chaque vente) */
+  /* Suggestions de la fiche hospitalité pour les entrées en soirée (le prix se tape à chaque vente) */
   HOSPITALITE: {
     'Entrée': ['Entrée soirée', 'Entrée soirée à thème', 'Entrée grand événement', 'Entrée groupe'],
-    'Hébergement': ['Nuit — chambre', 'Nuit — suite vue mer', 'Nuit — bungalow sur la plage', 'Week-end au resort'],
   },
+  /* Cocons paradisiaques : chambres pour 2, vendues sur la fiche hospitalité (deux noms de clients).
+     Prix fixes, modifiables par la direction dans « La carte » → Cocons paradisiaques.
+     PRIX PROVISOIRES, à remplacer par les vrais tarifs. */
+  COCONS: [
+    { id: 'cc_cocon', nom: 'Cocon paradisiaque', prix: 1000, desc: 'Chambre pour 2' },
+  ],
 
-  /* Tarifs hebdomadaires des cartes membres (comptabilité) — les mêmes sont repris côté serveur (api.mjs, CARD_PRICES) */
+  /* Tarifs d'origine des cartes membres — repris côté serveur (api.mjs, CARD_PRICES) tant que la
+     direction ne les a pas changés dans « La carte » → Cartes membres */
   MEMBERSHIP_PRICES: { Green: 1000, Gold: 2000, Platinum: 4000 },
 
-  /* Avantages des cartes membres */
+  /* Avantages d'origine des cartes membres */
   MEMBERSHIP: [
-    { key: 'Green', cls: 'green', prix: 1000, acces: 'Accès espace public', perks: [
+    { key: 'Green', nom: 'Green', cls: 'green', prix: 1000, acces: 'Accès espace public', perks: [
       'Entrée gratuite soirées standard',
       "File prioritaire à l'entrée",
       'Réduction 25 % soirées à thème',
       'Réduction 10 % sur la carte bar',
       'Invitations événements membres',
     ] },
-    { key: 'Gold', cls: 'gold', prix: 2000, acces: 'Accès espace VIP inclus', perks: [
+    { key: 'Gold', nom: 'Gold', cls: 'gold', prix: 2000, acces: 'Accès espace VIP inclus', perks: [
       'Tous les avantages Green inclus',
       'Entrée gratuite toutes soirées',
       'Accès VIP garanti sans réservation',
@@ -71,7 +77,7 @@ window.CLUB = {
       'Invitations soirées fermées',
       'Contact direct avec la direction',
     ] },
-    { key: 'Platinum', cls: 'plat', prix: 4000, acces: 'Accès VIP+ et casino — validation requise', perks: [
+    { key: 'Platinum', nom: 'Platinum', cls: 'plat', prix: 4000, acces: 'Accès VIP+ et casino — validation requise', perks: [
       'Tous les avantages Gold inclus',
       'Accès VIP+ permanent',
       'Accès casino privé inclus',
@@ -105,4 +111,20 @@ CLUB.upgradeMenu = function (menu) {
   const kept = menu.filter((m) => m && !CLUB.ANCIENS_ARTICLES.includes(m.id));
   const ids = new Set(kept.map((m) => m.id));
   return kept.concat(CLUB.MENU.filter((m) => !ids.has(m.id)).map((m) => JSON.parse(JSON.stringify(m))));
+};
+/* Cartes membres en vigueur : nom, tarif, accès et avantages modifiés par la direction (enregistrés dans
+   la base, collection « cartes »), sinon ceux d'origine. Les trois cartes restent : leur clé
+   (Green, Gold, Platinum) ne change jamais (couleur, ventes, comptabilité), seul le nom affiché change. */
+CLUB.membershipTiers = function (saved) {
+  return CLUB.MEMBERSHIP.map((t) => {
+    const s = Array.isArray(saved) ? saved.find((x) => x && x.key === t.key) : null;
+    if (!s) return t;
+    const prix = Number(s.prix);
+    return Object.assign({}, t, {
+      nom: typeof s.nom === 'string' && s.nom.trim() ? s.nom.trim() : t.nom,
+      prix: prix > 0 ? prix : t.prix,
+      acces: typeof s.acces === 'string' ? s.acces : t.acces,
+      perks: Array.isArray(s.perks) ? s.perks.filter((p) => typeof p === 'string' && p.trim()) : t.perks,
+    });
+  });
 };

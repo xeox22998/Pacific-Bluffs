@@ -84,7 +84,7 @@ function renderComptabilite() {
   // Cartes membres
   const autoMembers = comptaSales(week, 'carteVip').length;
   html += `<section class="section">${sectionHead('Cartes membres actives', autoMembers + (week.members || []).length, editStruct ? `<button class="btn btn-xs" type="button" onclick="addMemberRow('${week.id}')">${icon('plus', 'sm')}Ligne</button>` : '')}
-    <p class="field-hint" style="margin:-4px 0 12px">Tarifs de référence : GREEN ${fmtMoney(MEMBERSHIP_PRICES.Green)}/semaine · GOLD ${fmtMoney(MEMBERSHIP_PRICES.Gold)}/semaine · PLATINUM ${fmtMoney(MEMBERSHIP_PRICES.Platinum)}/semaine. Les cartes vendues sur la fiche « Cartes VIP » s'ajoutent toutes seules.</p>
+    <p class="field-hint" style="margin:-4px 0 12px">Tarifs en vigueur : ${membershipTiers().map((t) => `${esc(t.nom.toUpperCase())} ${fmtMoney(t.prix)}/semaine`).join(' · ')}. Les cartes vendues sur la fiche « Cartes VIP » s'ajoutent toutes seules.</p>
     ${renderMemberTable(week, editStruct)}</section>`;
   // Observations
   html += `<section class="section">${sectionHead('Observations', null, isDirection() ? `<button class="btn btn-xs" type="button" onclick="editObservations('${week.id}')">${icon('edit', 'sm')}Modifier</button>` : '')}
@@ -228,7 +228,7 @@ function renderMemberTable(week, editStruct) {
   // Cartes vendues sur la fiche « Cartes VIP » (transférées à 6h) : lignes calculées
   const autoRows = comptaSales(week, 'carteVip').sort((a, b) => (a.date || '').localeCompare(b.date || '')).map((s) => `<tr class="bar-row">
     <td><span class="strong">${esc(s.client || '—')}</span></td>
-    <td><span class="badge sun nodot">${esc(s.categorie)}</span></td>
+    <td><span class="badge sun nodot">${esc(tierName(s.categorie))}</span></td>
     <td>${fmtDateShort(s.date)}</td>
     <td>${s.date ? fmtDateShort(shiftISO(s.date, 6)) : '—'}</td>
     <td>${fmtMoney(saleTotal(s))} · vendue par ${esc(userLabel(s.userId))}<span class="auto-tag">${icon('receipt', 'sm')}Fiche Cartes VIP</span></td>
@@ -236,7 +236,7 @@ function renderMemberTable(week, editStruct) {
   </tr>`).join('');
   const rows = autoRows + list.map((m, i) => `<tr>
     <td>${editStruct ? textInput(m.nom, `updateMemberCell('${week.id}',${i},'nom',this.value)`, 170) : `<span class="strong">${esc(m.nom)}</span>`}</td>
-    <td>${editStruct ? `<select class="cell-in" onchange="updateMemberCell('${week.id}',${i},'type',this.value)">${['Green', 'Gold', 'Platinum'].map((t) => `<option ${String(m.type || '').toLowerCase().startsWith(t.toLowerCase().slice(0, 4)) ? 'selected' : ''}>${t}</option>`).join('')}</select>` : `<span class="badge sun nodot">${esc(m.type)}</span>`}</td>
+    <td>${editStruct ? `<select class="cell-in" onchange="updateMemberCell('${week.id}',${i},'type',this.value)">${membershipTiers().map((t) => `<option value="${t.key}" ${String(m.type || '').toLowerCase().startsWith(t.key.toLowerCase().slice(0, 4)) ? 'selected' : ''}>${esc(t.nom)}</option>`).join('')}</select>` : `<span class="badge sun nodot">${esc(tierName(m.type))}</span>`}</td>
     <td>${editStruct ? `<input class="cell-in" type="date" value="${/^\d{4}-\d{2}-\d{2}$/.test(m.dateDebut || '') ? esc(m.dateDebut) : ''}" onchange="updateMemberCell('${week.id}',${i},'dateDebut',this.value)">` : fmtDateShort(m.dateDebut)}</td>
     <td>${editStruct ? `<input class="cell-in" type="date" value="${/^\d{4}-\d{2}-\d{2}$/.test(m.dateFin || '') ? esc(m.dateFin) : ''}" onchange="updateMemberCell('${week.id}',${i},'dateFin',this.value)">` : fmtDateShort(m.dateFin)}</td>
     <td>${editStruct ? textInput(m.paiement || '', `updateMemberCell('${week.id}',${i},'paiement',this.value)`, 130) : esc(m.paiement || '—')}</td>
@@ -390,13 +390,13 @@ function exportWeekCSV(weekId) {
   (w.salaries || []).forEach((s) => lines.push([q(s.nom), q(s.poste), Number(s.montant) || 0, q(s.dateVersement), q(s.valide ? 'Oui' : 'Non')].join(';')));
   lines.push('');
   lines.push(['Membre', 'Type', 'Début', 'Fin', 'Paiement'].map(q).join(';'));
-  comptaSales(w, 'carteVip').forEach((s) => lines.push([q(s.client), q(s.categorie), q(s.date), q(s.date ? shiftISO(s.date, 6) : ''), q(`Fiche Cartes VIP — ${userLabel(s.userId)}`)].join(';')));
-  (w.members || []).forEach((m) => lines.push([q(m.nom), q(m.type), q(m.dateDebut), q(m.dateFin), q(m.paiement)].join(';')));
+  comptaSales(w, 'carteVip').forEach((s) => lines.push([q(s.client), q(tierName(s.categorie)), q(s.date), q(s.date ? shiftISO(s.date, 6) : ''), q(`Fiche Cartes VIP — ${userLabel(s.userId)}`)].join(';')));
+  (w.members || []).forEach((m) => lines.push([q(m.nom), q(tierName(m.type)), q(m.dateDebut), q(m.dateFin), q(m.paiement)].join(';')));
   const fiche = comptaSales(w).sort((a, b) => ((a.date || '') + (a.createdAt || '')).localeCompare((b.date || '') + (b.createdAt || '')));
   if (fiche.length) {
     lines.push('');
     lines.push(['Fiches de ventes — soirée', 'Heure', 'Vendeur', 'Fiche', 'Article', 'Client', 'Quantité', 'Prix', 'Total', `Part ${COMMISSION_PCT} %`].map(q).join(';'));
-    fiche.forEach((s) => lines.push([q(s.date || DAY_LABELS[DAY_KEYS.indexOf(s.day)]), q(s.heure), q(userLabel(s.userId)), q((SALE_TYPES.find((t) => t.id === saleType(s)) || SALE_TYPES[0]).label + (saleType(s) === 'hospitalite' ? ' — ' + hospKind(s) : '')), q(s.nom), q(s.client || ''), Number(s.qty) || 0, Number(s.prix) || 0, saleTotal(s), commissionOf(saleTotal(s))].join(';')));
+    fiche.forEach((s) => lines.push([q(s.date || DAY_LABELS[DAY_KEYS.indexOf(s.day)]), q(s.heure), q(userLabel(s.userId)), q((SALE_TYPES.find((t) => t.id === saleType(s)) || SALE_TYPES[0]).label + (saleType(s) === 'hospitalite' ? ' — ' + hospKind(s) : '')), q(s.nom), q(saleClients(s)), Number(s.qty) || 0, Number(s.prix) || 0, saleTotal(s), commissionOf(saleTotal(s))].join(';')));
   }
   downloadFile(`pacific-bluffs-compta-semaine-${w.numero}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
   logActivity('Export CSV', 'Semaine ' + w.numero);

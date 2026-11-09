@@ -1,5 +1,7 @@
 /* =====================================================================
    PACIFIC BLUFFS — La carte (modifiable par la direction, affichée sur l'accueil)
+   Rubriques : articles par catégorie, cartes membres (tarif, accès, avantages)
+   et cocons paradisiaques (chambres pour 2 vendues sur la fiche hospitalité).
    ===================================================================== */
 
 let carteCat = 'Plats';
@@ -13,23 +15,51 @@ function ownMenu() {
 function renderCarte() {
   const items = menuItems();
   const edit = canEditCarte();
-  const actions = edit ? `<button class="btn btn-sm" type="button" onclick="resetCarte()">${icon('refresh', 'sm')}Carte d'origine</button><button class="btn btn-sm btn-sun" type="button" onclick="openItemModal()" data-magnetic="0.2">${icon('plus', 'sm')}Ajouter un article</button>` : '';
-  let html = pageHead('La carte', 'La carte du Pacific Bluffs',
-    edit ? "Modifiez les articles, les prix et la composition des menus : l'accueil du site affiche automatiquement la carte à jour (articles disponibles uniquement)."
-      : 'Carte et prix en vigueur au bar.', actions);
+  const pill = (id, emoji, label) => `<button class="pill ${carteCat === id ? 'is-active' : ''}" type="button" role="tab" aria-selected="${carteCat === id}" onclick="carteCat='${id}';renderPage(false)"><span class="pi">${emoji}</span>${label}</button>`;
+  let actions = '', sub;
+  if (carteCat === 'Membres') {
+    if (edit) actions = `<button class="btn btn-sm" type="button" onclick="resetCartes()">${icon('refresh', 'sm')}Cartes d'origine</button>`;
+    sub = edit ? "Modifiez le nom, le tarif, l'accès et les avantages de chaque carte : l'accueil du site et la fiche « Cartes VIP » se mettent à jour automatiquement."
+      : 'Cartes membres et tarifs en vigueur.';
+  } else if (carteCat === 'Cocons') {
+    if (edit) actions = `<button class="btn btn-sm" type="button" onclick="resetCocons()">${icon('refresh', 'sm')}Cocons d'origine</button><button class="btn btn-sm btn-sun" type="button" onclick="openCoconModal()" data-magnetic="0.2">${icon('plus', 'sm')}Ajouter un cocon</button>`;
+    sub = edit ? 'Chambres pour 2 que tout le staff vend sur la fiche hospitalité (onglet Ventes). Le prix noté sur la fiche est celui choisi ici.'
+      : 'Cocons paradisiaques et prix en vigueur.';
+  } else {
+    if (edit) actions = `<button class="btn btn-sm" type="button" onclick="resetCarte()">${icon('refresh', 'sm')}Carte d'origine</button><button class="btn btn-sm btn-sun" type="button" onclick="openItemModal()" data-magnetic="0.2">${icon('plus', 'sm')}Ajouter un article</button>`;
+    sub = edit ? "Modifiez les articles, les prix et la composition des menus : l'accueil du site affiche automatiquement la carte à jour (articles disponibles uniquement)."
+      : 'Carte et prix en vigueur au bar.';
+  }
+  let html = pageHead('La carte', 'La carte du Pacific Bluffs', sub, actions);
 
-  html += `<div class="pill-row" role="tablist" aria-label="Catégories">${MENU_CATEGORIES.map((c) => {
-    const n = items.filter((m) => m.categorie === c).length;
-    return `<button class="pill ${carteCat === c ? 'is-active' : ''}" type="button" role="tab" aria-selected="${carteCat === c}" onclick="carteCat='${c}';renderPage(false)"><span class="pi">${CLUB.MENU_ICONS[c]}</span>${c} · ${n}</button>`;
-  }).join('')}<button class="pill ${carteCat === 'Membres' ? 'is-active' : ''}" type="button" role="tab" aria-selected="${carteCat === 'Membres'}" onclick="carteCat='Membres';renderPage(false)"><span class="pi">🌴</span>Cartes membres</button></div>`;
+  html += `<div class="pill-row" role="tablist" aria-label="Catégories">${MENU_CATEGORIES.map((c) => pill(c, CLUB.MENU_ICONS[c], `${c} · ${items.filter((m) => m.categorie === c).length}`)).join('')}${pill('Membres', '🌴', 'Cartes membres')}${pill('Cocons', '🌺', `Cocons paradisiaques · ${coconsList().length}`)}</div>`;
 
   if (carteCat === 'Membres') {
-    html += `<div class="tiers-grid stagger">${CLUB.MEMBERSHIP.map((t) => `
+    html += `<div class="tiers-grid stagger">${membershipTiers().map((t) => `
       <article class="tier-neon ${t.cls}"><div class="tn-in">
-        <div class="tn-head"><div class="tn-name">${esc(t.key.toUpperCase())}</div><div class="tn-price">${fmtMoney(t.prix)} <small>/ semaine</small></div><div class="tn-sub">${esc(t.acces)}</div></div>
+        <div class="tn-head"><div class="tn-name">${esc(t.nom.toUpperCase())}</div><div class="tn-price">${fmtMoney(t.prix)} <small>/ semaine</small></div><div class="tn-sub">${esc(t.acces)}</div></div>
         <ul class="tn-list">${t.perks.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+        ${edit ? `<div class="mn-actions"><button class="btn btn-xs" type="button" onclick="openTierModal('${t.key}')">${icon('edit', 'sm')}Modifier</button></div>` : ''}
       </div></article>`).join('')}</div>
-      <p class="tiers-note">Avantages affichés sur l'accueil du site. Les tarifs servent aussi de référence dans la comptabilité.</p>`;
+      <p class="tiers-note">Avantages affichés sur l'accueil du site. Le tarif est celui de la fiche « Cartes VIP » et de la comptabilité ; les cartes déjà vendues gardent leur prix.</p>`;
+    return html;
+  }
+
+  if (carteCat === 'Cocons') {
+    const list = coconsList();
+    if (!list.length) return html + emptyState('🌺', 'Aucun cocon', edit ? 'Ajoutez une formule de cocon paradisiaque.' : 'Aucun cocon paradisiaque pour le moment.');
+    html += `<div class="carte-grid stagger">${list.map((c) => `
+      <article class="carte-item card lift ${c.dispo === false ? 'off' : ''}">
+        <div class="viz viz-emoji" style="--hue:${hueFor(c.nom)}"><span class="em" aria-hidden="true">🌺</span>${c.dispo === false ? '<span class="ci-off">Indisponible</span>' : ''}</div>
+        <div class="ci-body">
+          <div class="ci-top"><b>${esc(c.nom)}</b><span class="price-tag">${fmtMoney(c.prix)}</span></div>
+          <p>${esc(c.desc || 'Chambre pour 2')}</p>
+          ${edit ? `<div class="ci-actions"><button class="btn btn-xs" type="button" onclick="openCoconModal('${c.id}')">${icon('edit', 'sm')}Modifier</button>
+            <button class="btn btn-xs" type="button" onclick="toggleCocon('${c.id}')">${c.dispo === false ? 'Remettre en vente' : 'Indisponible'}</button>
+            <button class="icon-btn xs" type="button" onclick="deleteCocon('${c.id}')" aria-label="Supprimer">${icon('trash', 'sm')}</button></div>` : ''}
+        </div>
+      </article>`).join('')}</div>
+      <p class="tiers-note">Notés sur la fiche hospitalité avec les noms des deux clients ; ils comptent dans « Hébergements » en comptabilité.</p>`;
     return html;
   }
 
@@ -134,5 +164,100 @@ function resetCarte() {
     DB.menu = JSON.parse(JSON.stringify(CLUB.MENU));
     logActivity('Carte réinitialisée', "Carte d'origine");
     toast("Carte d'origine rétablie.", 'success'); refresh();
+  }, 'Rétablir');
+}
+
+/* ---------- Cartes membres (Green, Gold, Platinum) : nom, tarif, accès, avantages ---------- */
+const defaultCartes = () => CLUB.MEMBERSHIP.map((t) => ({ key: t.key, nom: t.nom, prix: t.prix, acces: t.acces, perks: t.perks.slice() }));
+function ownCartes() {
+  if (!Array.isArray(DB.cartes) || !DB.cartes.length) DB.cartes = defaultCartes();
+  return DB.cartes;
+}
+function openTierModal(key) {
+  const t = membershipTiers().find((x) => x.key === key);
+  if (!t || !canEditCarte()) return;
+  openModal(`Carte ${esc(t.nom)}`, `
+    <div class="grid-2">
+      <div class="field"><label for="tmNom">Nom de la carte</label><input class="input" id="tmNom" maxlength="30" value="${esc(t.nom)}" placeholder="ex : ${esc(t.key)}"></div>
+      <div class="field"><label for="tmPrix">Tarif ($ / semaine)</label><input class="input" id="tmPrix" type="number" min="1" step="1" value="${Number(t.prix) || 0}"></div>
+    </div>
+    <div class="field"><label for="tmAcces">Accès (sous le tarif)</label><input class="input" id="tmAcces" maxlength="80" value="${esc(t.acces || '')}"></div>
+    <div class="field"><label for="tmPerks">Avantages (un par ligne)</label><textarea class="input" id="tmPerks" style="min-height:200px">${esc(t.perks.join('\n'))}</textarea></div>
+    <p class="field-hint">Le nom et le tarif changent sur l'accueil, la fiche « Cartes VIP » et la comptabilité. La couleur de la carte reste la même ; les ventes déjà notées gardent leur prix.</p>`,
+    `<button class="btn btn-sm btn-ghost" type="button" data-close-modal>Annuler</button><button class="btn btn-sm btn-sun" type="button" onclick="saveTier('${t.key}')">Enregistrer</button>`);
+}
+function saveTier(key) {
+  const nom = document.getElementById('tmNom').value.replace(/\s+/g, ' ').trim().slice(0, 30);
+  const prix = Math.round(Number(document.getElementById('tmPrix').value));
+  if (!nom) { toast('Donnez un nom à la carte.', 'error'); return; }
+  if (membershipTiers().some((t) => t.key !== key && t.nom.toLowerCase() === nom.toLowerCase())) { toast('Une autre carte porte déjà ce nom.', 'error'); return; }
+  if (!(prix >= 1 && prix <= 1000000)) { toast('Indiquez le tarif de la carte (en $ par semaine).', 'error'); return; }
+  const perks = document.getElementById('tmPerks').value.split('\n').map((l) => l.trim().slice(0, 120)).filter(Boolean).slice(0, 20);
+  if (!perks.length) { toast('Indiquez au moins un avantage.', 'error'); return; }
+  const list = ownCartes();
+  let c = list.find((x) => x && x.key === key);
+  if (!c) { c = { key }; list.push(c); }
+  const avant = tierName(key);
+  Object.assign(c, { nom, prix, acces: document.getElementById('tmAcces').value.trim().slice(0, 80), perks });
+  logActivity('Carte membre modifiée', `Carte ${nom}${avant !== nom ? ` (anciennement ${avant})` : ''} — ${fmtMoney(prix)} / semaine`);
+  toast(`Carte ${nom} enregistrée.`, 'success'); closeModal(); refresh();
+}
+function resetCartes() {
+  confirmAction("Remettre les tarifs et avantages d'origine des cartes membres ?", () => {
+    DB.cartes = defaultCartes();
+    logActivity('Cartes membres réinitialisées', "Tarifs et avantages d'origine");
+    toast("Cartes membres d'origine rétablies.", 'success'); refresh();
+  }, 'Rétablir');
+}
+
+/* ---------- Cocons paradisiaques (chambres pour 2, fiche hospitalité) ---------- */
+function ownCocons() {
+  if (!Array.isArray(DB.cocons)) DB.cocons = JSON.parse(JSON.stringify(CLUB.COCONS));
+  return DB.cocons;
+}
+function openCoconModal(id) {
+  if (!canEditCarte()) return;
+  const c = id ? coconsList().find((x) => x.id === id) : { nom: 'Cocon paradisiaque', prix: 0, desc: 'Chambre pour 2' };
+  if (!c) return;
+  openModal(id ? 'Modifier le cocon' : 'Ajouter un cocon', `
+    <div class="grid-2">
+      <div class="field"><label for="ccNom">Nom</label><input class="input" id="ccNom" maxlength="60" value="${esc(c.nom)}"></div>
+      <div class="field"><label for="ccPrix">Prix ($)</label><input class="input" id="ccPrix" type="number" min="1" step="1" value="${Number(c.prix) || ''}"></div>
+    </div>
+    <div class="field"><label for="ccDesc">Détail (facultatif)</label><input class="input" id="ccDesc" maxlength="80" value="${esc(c.desc || '')}" placeholder="ex : chambre pour 2 · 1 nuit"></div>`,
+    `<button class="btn btn-sm btn-ghost" type="button" data-close-modal>Annuler</button><button class="btn btn-sm btn-sun" type="button" onclick="saveCocon('${id || ''}')">Enregistrer</button>`);
+}
+function saveCocon(id) {
+  const nom = document.getElementById('ccNom').value.trim().slice(0, 60);
+  const prix = Math.round(Number(document.getElementById('ccPrix').value) * 100) / 100;
+  if (!nom) { toast('Donnez un nom au cocon.', 'error'); return; }
+  if (!(prix > 0 && prix <= 1000000)) { toast('Indiquez le prix du cocon (en $).', 'error'); return; }
+  const data = { nom, prix, desc: document.getElementById('ccDesc').value.trim().slice(0, 80) };
+  const list = ownCocons();
+  const c = id ? list.find((x) => x.id === id) : null;
+  if (c) Object.assign(c, data); else list.push(Object.assign({ id: uid('cc'), dispo: true }, data));
+  logActivity(c ? 'Cocon modifié' : 'Cocon ajouté', `${nom} — ${fmtMoney(prix)}`);
+  toast('Cocon enregistré.', 'success'); closeModal(); refresh();
+}
+function toggleCocon(id) {
+  const c = ownCocons().find((x) => x.id === id);
+  if (!c) return;
+  c.dispo = c.dispo === false;
+  logActivity(c.dispo ? 'Cocon remis en vente' : 'Cocon indisponible', c.nom);
+  refresh();
+}
+function deleteCocon(id) {
+  const c = coconsList().find((x) => x.id === id);
+  confirmAction(`Retirer « ${esc(c ? c.nom : '')} » des cocons ?`, () => {
+    DB.cocons = ownCocons().filter((x) => x.id !== id);
+    logActivity('Cocon retiré', c ? c.nom : '');
+    toast('Cocon retiré.', 'success'); refresh();
+  }, 'Retirer');
+}
+function resetCocons() {
+  confirmAction("Remettre les cocons paradisiaques d'origine (et leurs prix) ?", () => {
+    DB.cocons = JSON.parse(JSON.stringify(CLUB.COCONS));
+    logActivity('Cocons réinitialisés', "Cocons d'origine");
+    toast("Cocons d'origine rétablis.", 'success'); refresh();
   }, 'Rétablir');
 }

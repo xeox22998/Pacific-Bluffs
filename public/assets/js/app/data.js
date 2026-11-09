@@ -58,7 +58,6 @@ const DAY_LABELS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 const MONTHS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
 const MENU_CATEGORIES = CLUB.MENU_CATEGORIES;
-const MEMBERSHIP_PRICES = CLUB.MEMBERSHIP_PRICES;
 const RDV_STATUTS = ['Nouvelle', 'En cours', 'Acceptée', 'Refusée', 'Terminée'];
 /* Pièces jointes des fiches de l'équipe */
 const PIECES = [
@@ -98,6 +97,17 @@ function upgradeCarte() {
   logActivity('Carte mise à jour', 'Nouvelle carte du Pacific Bluffs');
   saveSoon();
 }
+/* Cartes membres en vigueur (tarifs et avantages modifiables par la direction dans « La carte ») */
+function membershipTiers() { return CLUB.membershipTiers(DB && DB.cartes); }
+function cardPrice(key) { const t = membershipTiers().find((x) => x.key === key); return t ? Number(t.prix) || 0 : 0; }
+/* Nom affiché d'une carte (clé Green / Gold / Platinum, ou ancien texte libre de la comptabilité) */
+function tierName(key) {
+  const k = String(key || '').toLowerCase();
+  const t = membershipTiers().find((x) => x.key.toLowerCase() === k || (k.length >= 4 && x.key.toLowerCase().startsWith(k.slice(0, 4))));
+  return t ? t.nom : String(key || '');
+}
+/* Cocons paradisiaques en vigueur (chambres pour 2 vendues sur la fiche hospitalité) */
+function coconsList() { return (DB && Array.isArray(DB.cocons)) ? DB.cocons : CLUB.COCONS; }
 
 
 function defaultRevenueRows() { return REVENUE_CATS.map((c) => ({ categorie: c, lun: 0, mar: 0, mer: 0, jeu: 0, ven: 0, sam: 0, dim: 0, autre: 0 })); }
@@ -107,8 +117,9 @@ function defaultExpenseRows() { return EXPENSE_CATS.map((c) => ({ categorie: c, 
    FICHES DE VENTES (onglet « Ventes », voir views/ventes.js)
    Une vente = un enregistrement de DB.barSales (nom de collection gardé pour la base) :
    { id, type: 'carte' | 'hospitalite' | 'carteVip', date: journée de service (AAAA-MM-JJ), day, userId,
-     itemId, nom, categorie, prix, qty, client (carte VIP, hébergement), heure, createdAt }
-   Hospitalité : categorie = 'Entrée' (entrées en soirée) ou 'Hébergement' (nuits au resort).
+     itemId, nom, categorie, prix, qty, client (carte VIP, hébergement, cocon), client2 (cocon), heure, createdAt }
+   Hospitalité : categorie = 'Entrée' (entrées en soirée) ou 'Cocon' (cocon paradisiaque : chambre
+   pour 2, prix de la liste DB.cocons, deux noms de clients) ; 'Hébergement' : anciennes ventes seulement.
    Journée de service : de 6h à 6h le lendemain, heure de Paris (comme le serveur). À 6h la
    journée se ferme : ses ventes passent toutes seules dans la comptabilité (cases « Bar &
    boissons », « Entrées soirées », « Hébergements », « Cartes membres ») et dans le dossier salaires.
@@ -117,7 +128,7 @@ function defaultExpenseRows() { return EXPENSE_CATS.map((c) => ({ categorie: c, 
    ===================================================================== */
 const SALE_TYPES = [
   { id: 'carte', label: 'Carte', long: 'Fiche des ventes de la carte', emoji: '🍹', compta: 'Bar & boissons' },
-  { id: 'hospitalite', label: 'Hospitalité', long: 'Fiche hospitalité', emoji: '🛎️', compta: 'Entrées soirées / Hébergements' },
+  { id: 'hospitalite', label: 'Hospitalité', long: 'Fiche hospitalité', emoji: '🛎️', compta: 'Entrées soirées / Hébergements (cocons)' },
   { id: 'carteVip', label: 'Cartes VIP', long: 'Fiche des ventes de cartes VIP', emoji: '💳', compta: 'Cartes membres' },
 ];
 const COMMISSION_RATE = Number(CLUB.COMMISSION_VENTES) || 0.25;
@@ -157,9 +168,14 @@ function saleInWeek(s, week) { return s.date ? !!(week.dateDebut && week.dateFin
 function comptaSales(week, type, day) {
   return allSales().filter((s) => saleInWeek(s, week) && isSaleTransferred(s) && (!type || saleType(s) === type) && (!day || saleDayKey(s) === day));
 }
-/* Fiche hospitalité : une entrée en soirée ou un hébergement */
-const HOSP_KINDS = ['Entrée', 'Hébergement'];
-function hospKind(s) { return s && s.categorie === 'Hébergement' ? 'Hébergement' : 'Entrée'; }
+/* Fiche hospitalité : une entrée en soirée ou un cocon paradisiaque (HOSP_CHOICES, ce qu'on peut noter).
+   « Hébergement » n'est plus proposé (09/11/2026) mais reste connu pour les ventes déjà notées. */
+const HOSP_KINDS = ['Entrée', 'Hébergement', 'Cocon'];
+const HOSP_CHOICES = ['Entrée', 'Cocon'];
+const HOSP_TAGS = { 'Entrée': '🎟️ Entrée', 'Hébergement': '🏨 Hébergement', 'Cocon': '🌺 Cocon' };
+function hospKind(s) { return s && HOSP_KINDS.includes(s.categorie) ? s.categorie : 'Entrée'; }
+/* Noms des clients d'une vente (un cocon en a deux) */
+function saleClients(s) { return [s && s.client, s && s.client2].filter(Boolean).join(' & '); }
 /* Ligne de revenus alimentée par une fiche (la première ligne de chaque sorte seulement) :
    « Bar & boissons » ← carte · « Entrées soirées » et « Hébergements » ← hospitalité · « Cartes membres » ← cartes VIP */
 function revenueKind(r) {
@@ -175,10 +191,11 @@ function autoKind(week, r) {
   return k && (week.revenues || []).find((x) => revenueKind(x) === k) === r ? k : null;
 }
 function hasRevenueKind(week, k) { return (week.revenues || []).some((x) => revenueKind(x) === k); }
-/* Case où va une vente (un hébergement va dans « Entrées soirées » si la semaine n'a pas de ligne « Hébergements ») */
+/* Case où va une vente : hébergements et cocons → « Hébergements » (ou « Entrées soirées » si la semaine
+   n'a pas de ligne « Hébergements ») */
 function saleBucket(s, week) {
   const t = saleType(s);
-  if (t === 'hospitalite') return hospKind(s) === 'Hébergement' && (!week || hasRevenueKind(week, 'hebergement')) ? 'hebergement' : 'entrees';
+  if (t === 'hospitalite') return hospKind(s) !== 'Entrée' && (!week || hasRevenueKind(week, 'hebergement')) ? 'hebergement' : 'entrees';
   return t;
 }
 function bucketSales(week, bucket, day) { return comptaSales(week, null, day).filter((s) => saleBucket(s, week) === bucket); }
