@@ -147,14 +147,19 @@
     });
   }
 
-  /* ---------- Curseur personnalisé ---------- */
+  /* ---------- Curseur personnalisé : un petit soleil ----------
+     Le cœur suit la souris exactement ; les rayons (qui tournent lentement) le rejoignent en douceur.
+     Sur un lien ou un bouton le soleil grandit ; avec data-cursor, le texte s'affiche dans un disque soleil. */
   function cursor() {
     if (!FINE || RM || document.querySelector('.cursor-dot')) return;
     const dot = document.createElement('div');
     const ring = document.createElement('div');
     dot.className = 'cursor-dot';
     ring.className = 'cursor-ring';
-    ring.innerHTML = '<span></span>';
+    const rays = Array.from({ length: 12 }, (_, i) =>
+      `<line x1="50" y1="${i % 2 ? 9 : 3}" x2="50" y2="${i % 2 ? 17 : 19}" transform="rotate(${i * 30} 50 50)"/>`).join('');
+    ring.innerHTML = `<svg class="cr-sun" viewBox="0 0 100 100" aria-hidden="true"><circle class="cr-glow" cx="50" cy="50" r="25"/><g class="cr-rays">${rays}</g></svg><span></span>`;
+    const label = ring.querySelector('span');
     document.body.append(dot, ring);
     document.documentElement.classList.add('has-cursor');
     let x = innerWidth / 2, y = innerHeight / 2, rx = x, ry = y, shown = false;
@@ -167,10 +172,11 @@
     addEventListener('pointerup', () => ring.classList.remove('is-down'));
     document.addEventListener('pointerover', (e) => {
       const t = e.target.closest('a,button,[data-cursor],label,summary,.pill');
-      const label = t && t.dataset.cursor;
-      ring.classList.toggle('is-hover', !!t && !label);
-      ring.classList.toggle('has-label', !!label);
-      ring.firstChild.textContent = label || '';
+      const text = t && t.dataset.cursor;
+      ring.classList.toggle('is-hover', !!t && !text);
+      ring.classList.toggle('has-label', !!text);
+      dot.classList.toggle('is-label', !!text); // le cœur s'efface derrière le texte (« Voir »)
+      label.textContent = text || '';
     });
     document.addEventListener('pointerleave', () => { dot.style.opacity = ring.style.opacity = '0'; });
     document.addEventListener('pointerenter', () => { dot.style.opacity = ring.style.opacity = '1'; });

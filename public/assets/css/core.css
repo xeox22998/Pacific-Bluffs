@@ -497,16 +497,27 @@ select.input{appearance:none;-webkit-appearance:none;padding-right:46px;cursor:p
 .js .split .w>span{transform:translateY(110%) rotate(4deg);transition:transform 1.1s var(--ease-out);transition-delay:calc(var(--i) * 45ms + var(--d,0ms))}
 .js .split.is-in .w>span{transform:none}
 
-/* ---------- Curseur personnalisé (vitrine, souris uniquement) ---------- */
+/* ---------- Curseur personnalisé : un petit soleil (vitrine, souris uniquement) ----------
+   .cursor-dot = cœur du soleil (suit la souris), .cursor-ring = halo et rayons qui tournent */
 .cursor-dot,.cursor-ring{position:fixed;left:0;top:0;pointer-events:none;z-index:9999;border-radius:50%}
-.cursor-dot{width:8px;height:8px;margin:-4px 0 0 -4px;background:#ff8a3d;box-shadow:0 0 10px rgba(255,120,80,.9),0 0 18px rgba(255,79,139,.5)}
-.cursor-ring{width:40px;height:40px;margin:-20px 0 0 -20px;border:1.5px solid rgba(255,138,61,.85);display:grid;place-items:center;
-  transition:width .45s var(--ease-out),height .45s var(--ease-out),margin .45s var(--ease-out),background-color .3s,border-color .3s}
-.cursor-ring span{font-size:11px;font-weight:600;letter-spacing:-.01em;color:var(--on-sun);opacity:0;transition:opacity .2s}
-.cursor-ring.is-hover{width:64px;height:64px;margin:-32px 0 0 -32px;background:rgba(255,120,80,.12);border-color:rgba(255,79,139,.85)}
-.cursor-ring.has-label{width:84px;height:84px;margin:-42px 0 0 -42px;background:var(--sun-flat);border-color:transparent;box-shadow:0 0 24px rgba(255,110,90,.5)}
+.cursor-dot{width:10px;height:10px;margin:-5px 0 0 -5px;background:radial-gradient(circle at 35% 35%,#fff6d2,#ffd166 45%,#ff8a3d);
+  box-shadow:0 0 8px rgba(255,190,70,.95),0 0 18px rgba(255,120,80,.6);transition:scale .3s var(--ease-out)}
+.cursor-dot.is-label{scale:0}
+.cursor-ring{width:46px;height:46px;margin:-23px 0 0 -23px;display:grid;place-items:center;color:#ffa83d;
+  transition:width .45s var(--ease-out),height .45s var(--ease-out),margin .45s var(--ease-out),color .3s}
+.cursor-ring::before{content:"";position:absolute;inset:21%;border-radius:50%;background:var(--sun-flat);box-shadow:0 0 24px rgba(255,110,90,.55);
+  transform:scale(0);transition:transform .4s var(--ease-out)}
+.cr-sun{position:absolute;inset:0;width:100%;height:100%;overflow:visible;filter:drop-shadow(0 0 4px rgba(255,150,60,.75));animation:spin 16s linear infinite}
+.cr-glow{fill:rgba(255,184,77,.2);transition:opacity .3s}
+.cr-rays{stroke:currentColor;stroke-width:5;stroke-linecap:round}
+.cursor-ring span{position:relative;font-size:11px;font-weight:600;letter-spacing:-.01em;color:var(--on-sun);opacity:0;transition:opacity .2s}
+.cursor-ring.is-hover{width:66px;height:66px;margin:-33px 0 0 -33px;color:#ff7a4d}
+.cursor-ring.is-hover .cr-glow{fill:rgba(255,140,80,.22)}
+.cursor-ring.has-label{width:94px;height:94px;margin:-47px 0 0 -47px;color:#ffb347}
+.cursor-ring.has-label::before{transform:scale(1)}
+.cursor-ring.has-label .cr-glow{opacity:0}
 .cursor-ring.has-label span{opacity:1}
-.cursor-ring.is-down{width:30px;height:30px;margin:-15px 0 0 -15px}
+.cursor-ring.is-down{width:34px;height:34px;margin:-17px 0 0 -17px}
 .has-cursor,.has-cursor a,.has-cursor button,.has-cursor label{cursor:none}
 .has-cursor input,.has-cursor textarea,.has-cursor select{cursor:auto}
 

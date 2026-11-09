@@ -43,7 +43,8 @@ const NAV_ITEMS = [
 
 const REVENUE_CATS = ['Entrées soirées', 'Hébergements', 'Bar & boissons', 'Service bouteille', 'Cartes membres', 'Événements privés', 'Contrats', 'Gouvernement', 'Export'];
 const EXPENSE_CATS = ['Salaires staff', 'Approvisionnement bar', 'Entretien & maintenance', 'Autres dépenses'];
-const DEFAULT_POSTES = ['Danseuse', 'Danseuse 2', 'Barman', 'Barman 2', 'Agent sécurité', 'Agent sécurité 2', 'Agent sécurité 3'];
+const ACCUEIL_POSTE = "Agent d'accueil / Animateur"; // remplace les danseuses (09/11/2026)
+const DEFAULT_POSTES = [ACCUEIL_POSTE, ACCUEIL_POSTE + ' 2', 'Barman', 'Barman 2', 'Agent sécurité', 'Agent sécurité 2', 'Agent sécurité 3'];
 const DOC_CATEGORIES = ['COMPTABILITÉ', 'PROGRAMMES', 'ADMINISTRATION', 'CONTRATS', 'AUTRES'];
 const DOC_VISUALS = {
   'COMPTABILITÉ':   { emoji: '💰', hue: 160 },
@@ -95,6 +96,33 @@ function upgradeCarte() {
   if (up === DB.menu || (isShared() && !isDirection())) return;
   DB.menu = up;
   logActivity('Carte mise à jour', 'Nouvelle carte du Pacific Bluffs');
+  saveSoon();
+}
+/* Plus de danseuses : les postes « Danseuse » (« Danseuse 2 »…) deviennent « Agent d'accueil / Animateur »
+   dans la liste des postes et dans les soirées à venir ; les soirées passées gardent leur historique.
+   Enregistré à la connexion de la direction (en mode local, de n'importe quel compte), comme upgradeCarte. */
+function renamedPoste(p) {
+  const m = /^Danseuses?( \d+)?$/i.exec(String(p || '').trim());
+  return m ? ACCUEIL_POSTE + (m[1] || '') : p;
+}
+function upgradePostes() {
+  if (!DB || !Array.isArray(DB.postes) || (isShared() && !isDirection())) return;
+  let n = 0;
+  const postes = [];
+  DB.postes.forEach((p) => { const q = renamedPoste(p); if (q !== p) n++; if (!postes.includes(q)) postes.push(q); });
+  const today = todayISO();
+  const futurs = new Set();
+  DB.events.forEach((ev) => {
+    if (!ev || !(ev.date >= today) || !Array.isArray(ev.assignments)) return;
+    ev.assignments.forEach((a) => { const q = renamedPoste(a && a.poste); if (a && q !== a.poste) { a.poste = q; n++; futurs.add(ev.id); } });
+  });
+  DB.attendances.forEach((a) => {
+    const q = a && futurs.has(a.eventId) ? renamedPoste(a.poste) : null;
+    if (q && q !== a.poste) { a.poste = q; n++; }
+  });
+  if (!n) return;
+  DB.postes = postes;
+  logActivity('Postes mis à jour', `Danseuse → ${ACCUEIL_POSTE}`);
   saveSoon();
 }
 /* Cartes membres en vigueur (tarifs et avantages modifiables par la direction dans « La carte ») */

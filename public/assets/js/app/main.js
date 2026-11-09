@@ -155,6 +155,7 @@ function enterApp(animated) {
     let saved = null;
     try { saved = sessionStorage.getItem('pacific:page'); } catch (e) { /* navigation privée */ }
     CURRENT_PAGE = saved && PAGES[saved] ? saved : 'dashboard';
+    upgradePostes();                                         // plus de danseuses : agent d'accueil / animateur
     autoClassicSoirees();                                    // les prochains mois sont toujours remplis
     upgradeCarte();                                          // nouvelle carte : remplace l'ancienne enregistrée
     syncAllRdv();                                            // privatisations datées → soirées privées au planning

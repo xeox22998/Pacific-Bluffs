@@ -300,7 +300,7 @@
     html += `<article class="evt" data-reveal style="--d:${events.length * 90}ms">
       ${vizHtml('waves', 190)}
       <div class="evt-date"><b>7/7</b><span>soirs</span></div>
-      <div class="evt-over"><span class="ev-tag">Tous les soirs · 23:00</span><h3>Soirée classique</h3><p>DJ, bar et danseuses : le Pacific Bluffs ouvre sa plage chaque soir dès 23h.</p></div>
+      <div class="evt-over"><span class="ev-tag">Tous les soirs · 23:00</span><h3>Soirée classique</h3><p>DJ, bar et animateurs : le Pacific Bluffs ouvre sa plage chaque soir dès 23h.</p></div>
     </article>`;
     if (!events.length) {
       html += `<article class="evt info card" data-reveal style="--d:120ms">
@@ -339,7 +339,7 @@
     0: { viz: ['beams', 330], b: 'Ce soir au Pacific Bluffs', s: 'Soirée classique · 23:00', href: '#evenements' },
     2: { viz: ['sunset', 25], b: 'Prochaines soirées', s: 'Bientôt annoncées', href: '#evenements' },
     3: { viz: ['island', 190], b: 'Cartes membres', s: 'Avantages VIP', href: '#membres' },
-    5: { viz: ['eq', 320], b: 'DJ & danseuses', s: 'Chaque soir', href: '#evenements' },
+    5: { viz: ['eq', 320], b: 'DJ & animateurs', s: 'Chaque soir', href: '#evenements' },
   };
   function heroCard(c, viz, live, b, s, href, label) {
     c.innerHTML = `<div class="fc-bob"><div class="fc-in">${viz}${live ? '<span class="fc-live">Ce soir</span>' : ''}<div class="fc-meta"><b>${esc(b)}</b><span>${esc(s)}</span></div></div></div>`;
