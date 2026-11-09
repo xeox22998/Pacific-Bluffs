@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pacific Bluffs — Beach Resort · Los Santos</title>
+<meta name="description" content="Pacific Bluffs Beach Resort, la plage et les soirées de Los Santos : la carte et les menus, les cartes membres et les prochains événements.">
+<meta name="theme-color" content="#0b0920">
+<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Yellowtail&family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600&display=swap" rel="stylesheet">
+<script>(function(){document.documentElement.classList.add('js');var t='dark';try{t=sessionStorage.getItem('pacific:theme')||'dark';}catch(e){}document.documentElement.dataset.theme=t;})();</script>
+<!-- Développement uniquement : simulateur de la base partagée (inactif en ligne) -->
+<script>try{if(localStorage.getItem('pacific:mock')==='1'){window.__pacificMock=new Promise(function(r){window.__pacificMockResolve=r});document.write('<script type="importmap">{"imports":{"@netlify/blobs":"/dev/blobs-stub.js","node:crypto":"/dev/crypto-stub.js"}}<\/script><script type="module" src="/dev/mock-api.js"><\/script>');}}catch(e){}</script>
+<link rel="stylesheet" href="assets/css/core.css">
+<link rel="stylesheet" href="assets/css/site.css">
+</head>
+<body>
+
+<!-- Écran d'intro : le soleil du logo se lève sur l'horizon, puis « Pacific Bluffs » apparaît -->
+<div class="loader" id="loader" aria-hidden="true">
+  <div class="ld-in">
+    <svg class="ld-art" viewBox="0 0 100 92" aria-hidden="true">
+      <defs>
+        <linearGradient id="ldSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3f7bdc"/><stop offset=".24" stop-color="#5b4cc4"/><stop offset=".46" stop-color="#8a2fa0"/><stop offset=".68" stop-color="#c23e74"/><stop offset=".86" stop-color="#e8613a"/><stop offset="1" stop-color="#ff8a2a"/></linearGradient>
+        <clipPath id="ldClip"><rect x="-10" y="-10" width="120" height="92"/></clipPath>
+      </defs>
+      <g clip-path="url(#ldClip)">
+        <g class="ld-rise">
+          <path d="M24.8 82A42 42 0 1 1 79.2 82Z" fill="url(#ldSky)"/>
+          <g fill="#fff">
+            <path d="M45 82C46.2 69 47.8 56 48.8 42.6L51.4 42.9C50.8 56 49.6 69 49.6 82Z"/>
+            <path d="M50 42C42 35 31 37 26 51C32 43 40 41 50 44ZM50 42C45 33 36 29 29 32C37 33 44 36 49.5 43.5ZM50 42C48 33 45 27 40 23C45 28 48 34 51 42ZM50 42C53 33 57 28 63 25C58 30 54 35 51 43ZM50 42C57 35 66 32 73 35C65 35 57 39 51 44ZM50 42C59 38 69 42 74 53C68 46 59 43 50 44Z"/>
+            <path d="M67.6 82C68.4 75 69.2 67 69.6 60.4L71.6 60.7C71.5 67 71.2 75 71.4 82Z"/>
+            <path transform="translate(70.6 60.4) scale(.68) translate(-50 -42)" d="M50 42C42 35 31 37 26 51C32 43 40 41 50 44ZM50 42C45 33 36 29 29 32C37 33 44 36 49.5 43.5ZM50 42C48 33 45 27 40 23C45 28 48 34 51 42ZM50 42C53 33 57 28 63 25C58 30 54 35 51 43ZM50 42C57 35 66 32 73 35C65 35 57 39 51 44ZM50 42C59 38 69 42 74 53C68 46 59 43 50 44Z"/>
+            <path d="M48.9 68.5Q59 80 69.9 70.6Q59 76.4 48.9 68.5Z"/>
+          </g>
+        </g>
+      </g>
+      <path class="ld-horizon" pathLength="100" d="M2 82H98"/>
+      <circle class="ld-moon" cx="19" cy="17" r="11"/>
+    </svg>
+    <div class="ld-name brand">Pacific Bluffs</div>
+    <div class="ld-script script">Beach Resort</div>
+    <div class="ld-bar"><i id="ldBar"></i></div>
+  </div>
+</div>
+
+<div class="progress" id="progress" aria-hidden="true"></div>
+
+<!-- Bandeau du haut -->
+<a class="topband" href="#evenements">
+  <span class="live-dot"></span>
+  <span id="countdown">Ouverture tous les soirs à 23h</span>
+  <span class="tb-cta">Les prochaines soirées <svg class="i sm" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+</a>
+
+<!-- Navigation flottante -->
+<header class="nav" id="nav">
+  <a class="nav-logo" href="#top" aria-label="Pacific Bluffs — haut de page">
+    <img src="assets/img/logo.svg" alt="" width="38" height="38">
+    <span class="nav-name"><b class="brand">Pacific Bluffs</b><small class="script">Beach Resort</small></span>
+  </a>
+  <nav class="nav-links" id="navLinks" aria-label="Sections">
+    <span class="nav-ind" id="navInd"></span>
+    <a href="#carte">La carte</a>
+    <a href="#membres">Membres</a>
+    <a href="#evenements">Événements</a>
+    <a href="#direction">Direction</a>
+  </nav>
+  <div class="nav-actions">
+    <button class="icon-btn sm theme-toggle" data-theme-toggle aria-label="Basculer le mode nuit">
+      <svg class="i moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="i sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="btn btn-dark btn-sm nav-staff" href="espace.html" data-magnetic="0.25"><svg class="i sm" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Espace staff</a>
+    <button class="icon-btn sm nav-burger" id="burger" aria-label="Ouvrir le menu" aria-expanded="false">
+      <svg class="i" viewBox="0 0 24 24"><path d="M4 8h16M4 16h16"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- Menu mobile -->
+<div class="mnav" id="mnav">
+  <a href="#carte">La carte</a>
+  <a href="#menus">Nos menus</a>
+  <a href="#membres">Cartes membres</a>
+  <a href="#evenements">Événements</a>
+  <a href="#direction">Direction</a>
+  <a href="espace.html" class="mnav-staff">Espace staff →</a>
+</div>
+
+<main>
+
+  <!-- ===================== HERO ===================== -->
+  <section class="hero" id="top">
+    <canvas class="lights" id="lights" aria-hidden="true"></canvas>
+    <div class="hero-sea" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="hero-stage" id="heroStage">
+      <div class="constellation" id="constellation">
+        <!-- Les cartes 1, 3, 4 et 6 sont remplacées par les prochains événements (site.js, heroEvents) -->
+        <a class="fc" href="#evenements" data-cursor="Voir" data-fill="1" style="--l:5%;--t:4%;--w:190px;--r:-8deg;--i:0" data-depth="1.3" aria-label="Ce soir au Pacific Bluffs, soirée classique dès 23h">
+          <div class="fc-bob"><div class="fc-in">
+            <div class="viz viz-beams" style="--hue:330"><span class="beam"></span><span class="beam"></span><span class="beam"></span><span class="floor"></span></div>
+            <div class="fc-meta"><b>Ce soir au Pacific Bluffs</b><span>Soirée classique · 23:00</span></div>
+          </div></div>
+        </a>
+        <a class="fc fc-sm" href="#evenements" data-cursor="Voir" style="--l:22%;--t:-5%;--w:150px;--r:5deg;--i:1" data-depth="0.7" aria-label="Prochains événements">
+          <div class="fc-bob"><div class="fc-in">
+            <div class="viz viz-vinyl" style="--hue:25"><div class="disc"><b><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8C9.5 5.4 5.4 5.4 2.6 9.2C5.8 7.6 9 7.7 11.9 9.1ZM12 8C10.6 4.7 7.4 3.1 4.6 3.7C7.5 4.5 10 6.2 11.6 8.9ZM12 8C13.4 4.7 16.6 3.1 19.4 3.7C16.5 4.5 14 6.2 12.4 8.9ZM12 8C14.5 5.4 18.6 5.4 21.4 9.2C18.2 7.6 15 7.7 12.1 9.1ZM12 8C11.7 5.3 12.2 3 13.7 1.3C13.1 3.4 12.9 5.6 12.9 8.3ZM11.1 8.6C11.6 13 11.4 17.6 10.3 22.6H13.2C13.8 17.6 13.5 13 12.7 8.6Z"/></svg></b></div><div class="sheen"></div></div>
+            <div class="fc-meta"><b>Événements</b><span>À venir</span></div>
+          </div></div>
+        </a>
+        <a class="fc" href="#evenements" data-cursor="Voir" data-fill="1" style="--l:71%;--t:1%;--w:200px;--r:7deg;--i:2" data-depth="1.5" aria-label="Prochaines soirées, bientôt annoncées">
+          <div class="fc-bob"><div class="fc-in">
+            <div class="viz viz-sunset"><span class="ss-sun"></span><span class="ss-sea"></span><i class="ss-palm"></i><i class="ss-palm r"></i></div>
+            <div class="fc-meta"><b>Prochaines soirées</b><span>Bientôt annoncées</span></div>
+          </div></div>
+        </a>
+        <a class="fc" href="#membres" data-cursor="Voir" data-fill="1" style="--l:1%;--t:54%;--w:170px;--r:6deg;--i:3" data-depth="1" aria-label="Cartes membres, avantages VIP">
+          <div class="fc-bob"><div class="fc-in">
+            <div class="viz viz-emoji" style="--hue:190"><span class="em" aria-hidden="true">🏝️</span></div>
+            <div class="fc-meta"><b>Cartes membres</b><span>Avantages VIP</span></div>
+          </div></div>
+        </a>
+        <a class="fc" href="#evenements" data-cursor="Voir" style="--l:79%;--t:50%;--w:185px;--r:-6deg;--i:4" data-depth="1.2" aria-label="Soirée tous les soirs dès 23h">
+          <div class="fc-bob"><div class="fc-in">
+            <div class="viz viz-ball"><span class="sand"></span><span class="shd"></span><span class="bw"><span class="ball"></span></span></div>
+            <div class="fc-meta"><b>Tous les soirs</b><span>Dès 23h</span></div>
+          </div></div>
+        </a>
+        <a class="fc fc-sm" href="#evenements" data-cursor="Voir" data-fill="1" style="--l:67%;--t:77%;--w:132px;--r:4deg;--i:5" data-depth="0.6" aria-label="DJ et danseuses chaque soir">
+          <div class="fc-bob"><div class="fc-in">
+            <div class="viz viz-eq" style="--hue:320"><i style="--i:0"></i><i style="--i:1"></i><i style="--i:2"></i><i style="--i:3"></i><i style="--i:4"></i><i style="--i:5"></i><i style="--i:6"></i><i style="--i:7"></i><i style="--i:8"></i></div>
+            <div class="fc-meta"><b>DJ &amp; danseuses</b><span>Chaque soir</span></div>
+          </div></div>
+        </a>
+        <a class="fc fc-xs" href="#direction" data-cursor="Voir" style="--l:20%;--t:74%;--w:112px;--r:-10deg;--i:6" data-depth="0.9" aria-label="La direction du Pacific Bluffs">
+          <div class="fc-bob"><div class="fc-in">
+            <div class="viz viz-palm" style="--hue:22"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="pv-sun" cx="56" cy="58" r="24"/><path class="pv-sea" d="M0 80Q12.5 76 25 80T50 80T75 80T100 80V100H0Z"/><path class="pv-sea2" d="M-10 86Q2.5 82 15 86T40 86T65 86T90 86T115 86V100H-10Z"/><path class="pv-tree" d="M35 100C38 84 42 66 47 48.6L50 49.2C46 66 42.5 84 40.5 100Z"/><g transform="translate(-1.5 6)"><g class="pv-fr pv-tree"><path d="M50 42C42 35 31 37 26 51C32 43 40 41 50 44ZM50 42C45 33 36 29 29 32C37 33 44 36 49.5 43.5ZM50 42C48 33 45 27 40 23C45 28 48 34 51 42ZM50 42C53 33 57 28 63 25C58 30 54 35 51 43ZM50 42C57 35 66 32 73 35C65 35 57 39 51 44ZM50 42C59 38 69 42 74 53C68 46 59 43 50 44Z"/></g></g></svg></div>
+            <div class="fc-meta"><b>Direction</b><span>Pacific Bluffs</span></div>
+          </div></div>
+        </a>
+      </div>
+
+      <!-- Le logo en grand : le coucher de soleil, la lune, les palmiers et leur hamac, puis le nom -->
+      <h1 class="wordmark" aria-label="Pacific Bluffs Beach Resort">
+        <span class="wm" aria-hidden="true">
+          <svg class="wm-art" viewBox="0 0 100 92">
+            <defs>
+              <linearGradient id="wmSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3f7bdc"/><stop offset=".24" stop-color="#5b4cc4"/><stop offset=".46" stop-color="#8a2fa0"/><stop offset=".68" stop-color="#c23e74"/><stop offset=".86" stop-color="#e8613a"/><stop offset="1" stop-color="#ff8a2a"/></linearGradient>
+              <radialGradient id="wmSunset"><stop offset="0" stop-color="#fff0b8"/><stop offset=".4" stop-color="#ffbf55" stop-opacity=".95"/><stop offset="1" stop-color="#ff7a3d" stop-opacity="0"/></radialGradient>
+              <clipPath id="wmClip"><path d="M24.8 82A42 42 0 1 1 79.2 82Z"/></clipPath>
+            </defs>
+            <g class="wm-disc">
+              <path class="wm-sky" d="M24.8 82A42 42 0 1 1 79.2 82Z" fill="url(#wmSky)"/>
+              <g clip-path="url(#wmClip)">
+                <g class="wm-stars" fill="#fff"><circle style="--i:0" cx="36" cy="18" r=".7"/><circle style="--i:1" cx="66" cy="14" r=".9"/><circle style="--i:2" cx="80" cy="26" r=".6"/><circle style="--i:3" cx="58" cy="24" r=".5"/><circle style="--i:4" cx="28" cy="32" r=".55"/><circle style="--i:5" cx="86" cy="40" r=".7"/></g>
+                <circle class="wm-setting" cx="58" cy="83" r="22" fill="url(#wmSunset)"/>
+                <path class="wm-sea s1" d="M0 77Q6.25 74.5 12.5 77T25 77T37.5 77T50 77T62.5 77T75 77T87.5 77T100 77T112.5 77T125 77T137.5 77T150 77T162.5 77T175 77T187.5 77T200 77V90H0Z"/>
+                <path class="wm-sea s2" d="M0 80Q5 78 10 80T20 80T30 80T40 80T50 80T60 80T70 80T80 80T90 80T100 80T110 80T120 80T130 80T140 80T150 80T160 80T170 80T180 80T190 80T200 80V90H0Z"/>
+              </g>
+              <g class="wm-palms" fill="#fff">
+                <path d="M45 82C46.2 69 47.8 56 48.8 42.6L51.4 42.9C50.8 56 49.6 69 49.6 82Z"/>
+                <g class="fr"><path d="M50 42C42 35 31 37 26 51C32 43 40 41 50 44ZM50 42C45 33 36 29 29 32C37 33 44 36 49.5 43.5ZM50 42C48 33 45 27 40 23C45 28 48 34 51 42ZM50 42C53 33 57 28 63 25C58 30 54 35 51 43ZM50 42C57 35 66 32 73 35C65 35 57 39 51 44ZM50 42C59 38 69 42 74 53C68 46 59 43 50 44Z"/></g>
+                <path d="M67.6 82C68.4 75 69.2 67 69.6 60.4L71.6 60.7C71.5 67 71.2 75 71.4 82Z"/>
+                <g transform="translate(70.6 60.4) scale(.68) translate(-50 -42)"><g class="fr fr-b"><path d="M50 42C42 35 31 37 26 51C32 43 40 41 50 44ZM50 42C45 33 36 29 29 32C37 33 44 36 49.5 43.5ZM50 42C48 33 45 27 40 23C45 28 48 34 51 42ZM50 42C53 33 57 28 63 25C58 30 54 35 51 43ZM50 42C57 35 66 32 73 35C65 35 57 39 51 44ZM50 42C59 38 69 42 74 53C68 46 59 43 50 44Z"/></g></g>
+                <path class="hm" d="M48.9 68.5Q59 80 69.9 70.6Q59 76.4 48.9 68.5Z"/>
+              </g>
+            </g>
+            <!-- La lune du logo : un clic lance des confettis -->
+            <g class="wm-moon" id="wmMoon"><circle class="mo-glow" cx="19" cy="17" r="16"/><circle class="mo" cx="19" cy="17" r="11"/><path class="mo-glint" d="M32 3.5l1 2.8 2.8 1-2.8 1-1 2.8-1-2.8-2.8-1 2.8-1z"/></g>
+          </svg>
+          <span class="wm-title brand">Pacific Bluffs</span>
+          <span class="wm-script script">Beach Resort</span>
+        </span>
+      </h1>
+    </div>
+
+    <div class="hero-bottom">
+      <p class="hero-tag">Le beach resort de Los Santos. <span class="muted">Tous les soirs, dès 23h.</span></p>
+
+      <a class="ask" id="ask" href="#carte" data-cursor="Go">
+        <svg class="i ask-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <span class="ask-text"><span class="ask-pre">Ce soir, je veux…</span> <span id="typer">voir la carte</span><i class="caret"></i></span>
+        <span class="icon-btn sun ask-go" aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+      </a>
+
+      <div class="cat-pills" id="catPills">
+        <a class="pill" href="#carte" data-filter="Plats"><span class="pi">🍔</span>Plats</a>
+        <a class="pill" href="#carte" data-filter="Softs"><span class="pi">🥤</span>Softs</a>
+        <a class="pill" href="#carte" data-filter="Cocktails"><span class="pi">🍹</span>Cocktails</a>
+        <a class="pill" href="#carte" data-filter="Desserts"><span class="pi">🍰</span>Desserts</a>
+        <a class="pill" href="#menus"><span class="pi">🥂</span>Nos menus</a>
+        <a class="pill" href="#membres"><span class="pi">🌴</span>Cartes membres</a>
+        <a class="pill" href="#evenements"><span class="pi">🎉</span>Événements</a>
+      </div>
+    </div>
+
+    <a class="scroll-hint" href="#carte" aria-label="Défiler vers le bas"><span></span></a>
+  </section>
+
+  <!-- ===================== BANDEAU DÉFILANT ===================== -->
+  <div class="marquee" id="marquee" aria-hidden="true">
+    <div class="mq-track">
+      <div class="mq-group">
+        <span>Tous les soirs dès 23h</span><i class="sun-dot"></i>
+        <span class="o">Cocktails signature</span><i class="sun-dot"></i>
+        <span>Nos menus</span><i class="sun-dot"></i>
+        <span class="o">Cartes membres</span><i class="sun-dot"></i>
+        <span>Beach parties</span><i class="sun-dot"></i>
+        <span class="o">DJ &amp; danseuses</span><i class="sun-dot"></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== LA CARTE ===================== -->
+  <section class="menu" id="carte">
+    <div class="wrap">
+      <div class="sec-head">
+        <div>
+          <span class="eyebrow" data-reveal><span class="ey-ic"></span>La carte</span>
+          <h2 class="h2" data-split>La carte du Pacific Bluffs.</h2>
+        </div>
+        <p class="sec-sub" data-reveal>Plats, softs, cocktails et desserts signés Pacific Bluffs, servis au bar toute la soirée, les pieds dans le sable.</p>
+      </div>
+      <div class="filters" id="menuFilters" role="tablist" aria-label="Catégories de la carte">
+        <span class="filter-ind" id="filterInd"></span>
+      </div>
+      <div class="menu-grid" id="menuGrid"></div>
+
+      <div class="menus-head" id="menus">
+        <span class="eyebrow" data-reveal><span class="ey-ic"></span>Nos menus</span>
+        <h3 class="h3" data-split>Nos menus, pour tout le monde.</h3>
+        <p class="sec-sub" data-reveal>Pas besoin d'être VIP : composez votre soirée avec nos formules.</p>
+      </div>
+      <div class="menus-grid" id="menusGrid" data-stagger="120"></div>
+    </div>
+  </section>
+
+  <!-- ===================== CARTES MEMBRES ===================== -->
+  <section class="members" id="membres">
+    <div class="wrap">
+      <div class="sec-head center">
+        <span class="eyebrow" data-reveal><span class="ey-ic"></span>Cartes membres</span>
+        <h2 class="h2" data-split>Les avantages des cartes membres.</h2>
+        <p class="sec-sub" data-reveal>Cartes nominatives, à la semaine.</p>
+      </div>
+      <div class="tiers-grid" id="tiersGrid" data-stagger="130"></div>
+      <p class="tiers-note" data-reveal>Renseignements auprès de la direction.</p>
+    </div>
+  </section>
+
+  <!-- ===================== ÉVÉNEMENTS À VENIR ===================== -->
+  <section class="events" id="evenements">
+    <div class="wrap">
+      <div class="sec-head">
+        <div>
+          <span class="eyebrow" data-reveal><span class="ey-ic"></span>Événements</span>
+          <h2 class="h2" data-split>Les prochaines soirées.</h2>
+        </div>
+        <div class="week" id="week" aria-label="Jours d'ouverture"></div>
+      </div>
+      <div class="events-grid" id="eventsGrid" aria-live="polite">
+        <div class="evt skeleton"></div><div class="evt skeleton"></div><div class="evt skeleton"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== DIRECTION ===================== -->
+  <section class="direction" id="direction">
+    <div class="wrap">
+      <div class="sec-head center">
+        <span class="eyebrow" data-reveal><span class="ey-ic"></span>La direction</span>
+        <h2 class="h2" data-split>Ceux qui tiennent le Pacific Bluffs.</h2>
+      </div>
+      <div class="dir-grid" id="dirGrid" data-stagger="140"></div>
+    </div>
+  </section>
+</main>
+
+<!-- ===================== PIED DE PAGE ===================== -->
+<footer class="foot" id="foot">
+  <div class="foot-sea" aria-hidden="true"><i></i><i></i></div>
+  <div class="wrap">
+    <div class="foot-top">
+      <h2 class="foot-cta" data-split>Ce soir, 23h.<br>Rendez-vous sur la plage.</h2>
+      <a class="btn btn-sun" href="#evenements" data-magnetic="0.3">Les prochaines soirées <svg class="i arr" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+    </div>
+    <div class="foot-cols">
+      <div><h4>Le resort</h4><a href="#carte">La carte</a><a href="#menus">Nos menus</a><a href="#membres">Cartes membres</a><a href="#evenements">Événements</a></div>
+      <div><h4>Pacific Bluffs</h4><a href="#direction">La direction</a><span>Beach resort de Los Santos</span></div>
+      <div><h4>Horaires</h4><span>Tous les soirs dès 23h</span><span>Los Santos</span></div>
+      <div><h4>Staff</h4><a href="espace.html" class="foot-staff">Espace staff →</a><span>Planning, compta, équipe</span></div>
+    </div>
+  </div>
+  <div class="foot-giant" id="footGiant" aria-hidden="true"><span class="fg-out brand">Pacific Bluffs</span><span class="fg-in brand">Pacific Bluffs</span></div>
+  <div class="wrap foot-legal"><span>© 2026 Pacific Bluffs Beach Resort · Los Santos</span><span>Établissement fictif — univers GTA RP</span></div>
+</footer>
+
+<button class="totop" id="totop" aria-label="Revenir en haut">
+  <svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="ttGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffc65a"/><stop offset=".5" stop-color="#ff6a5c"/><stop offset="1" stop-color="#8a2fa0"/></linearGradient></defs><circle class="tt-track" cx="24" cy="24" r="21"/><circle class="tt-prog" id="ttProg" cx="24" cy="24" r="21"/></svg>
+  <svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+</button>
+
+<script src="assets/js/club-data.js"></script>
+<script src="assets/js/motion.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/site.js"></script>
+</body>
+</html>

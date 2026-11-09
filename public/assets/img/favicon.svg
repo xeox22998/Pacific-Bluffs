@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100">
+  <!-- Pacific Bluffs : icône d'onglet (coucher de soleil et palmiers sur fond nuit) -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f7bdc"/>
+      <stop offset=".24" stop-color="#5b4cc4"/>
+      <stop offset=".46" stop-color="#8a2fa0"/>
+      <stop offset=".68" stop-color="#c23e74"/>
+      <stop offset=".86" stop-color="#e8613a"/>
+      <stop offset="1" stop-color="#ff8a2a"/>
+    </linearGradient>
+    <g id="fronds" stroke="#fff" stroke-width="1.6" stroke-linejoin="round">
+      <path d="M50 42C42 35 31 37 26 51C32 43 40 41 50 44Z"/>
+      <path d="M50 42C45 33 36 29 29 32C37 33 44 36 49.5 43.5Z"/>
+      <path d="M50 42C48 33 45 27 40 23C45 28 48 34 51 42Z"/>
+      <path d="M50 42C53 33 57 28 63 25C58 30 54 35 51 43Z"/>
+      <path d="M50 42C57 35 66 32 73 35C65 35 57 39 51 44Z"/>
+      <path d="M50 42C59 38 69 42 74 53C68 46 59 43 50 44Z"/>
+    </g>
+  </defs>
+  <rect width="100" height="100" rx="24" fill="#120d2e"/>
+  <g transform="translate(-2 4)">
+    <path d="M24.8 82A42 42 0 1 1 79.2 82Z" fill="url(#sky)"/>
+    <g fill="#fff">
+      <path d="M44.4 82C45.8 69 47.6 56 48.6 42.6L51.6 42.9C51 56 50 69 50.2 82Z"/>
+      <use xlink:href="#fronds"/>
+      <path d="M67.2 82C68 75 68.9 67 69.4 60.4L71.9 60.7C71.8 67 71.5 75 71.8 82Z"/>
+      <use xlink:href="#fronds" transform="translate(70.6 60.4) scale(.68) translate(-50 -42)"/>
+    </g>
+    <circle cx="21" cy="19" r="10" fill="#fff"/>
+  </g>
+</svg>

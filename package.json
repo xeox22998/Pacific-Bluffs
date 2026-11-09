@@ -1,0 +1,10 @@
+{
+  "name": "pacific-bluffs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pacific Bluffs — vitrine et espace staff (GTA RP), base partagée via Netlify Functions + Netlify Blobs",
+  "type": "module",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}
