@@ -207,6 +207,8 @@ function canEditFinance() { return [ROLES.SECRETAIRE, ROLES.DIRECTION].includes(
 function canFillFinance() { return CURRENT_USER.role !== ROLES.GOUVERNEMENT; }
 /* Créer / modifier / supprimer des soirées et attribuer les postes : Direction + Comptabilité */
 function canManageEvents() { return [ROLES.DIRECTION, ROLES.SECRETAIRE].includes(CURRENT_USER.role); }
+/* Voir qui s'est inscrit à chaque soirée (calendrier, programme) : Direction, Comptabilité et managers */
+function canSeeSignups() { return [ROLES.DIRECTION, ROLES.SECRETAIRE, ROLES.MANAGER].includes(CURRENT_USER.role); }
 
 /* ---------------- Icônes ---------------- */
 const ICONS = {

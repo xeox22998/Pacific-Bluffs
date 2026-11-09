@@ -427,6 +427,20 @@ input[type=checkbox].tick{width:20px;height:20px;accent-color:var(--sun);cursor:
 .evc h3{font-size:16.5px;font-weight:600;letter-spacing:-.03em;line-height:1.2}
 .evc-meta{display:flex;gap:14px;font-size:12.5px;color:var(--muted)}
 .evc-meta span{display:inline-flex;align-items:center;gap:5px}
+/* Inscrits d'une soirée (direction, comptabilité, managers) */
+.evc-team{display:flex;align-items:center;gap:6px;min-width:0;font-size:12.5px;font-weight:500;color:var(--ink)}
+.evc-team.muted{color:var(--muted);font-weight:400}
+.evc-team span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.signups{display:flex;flex-direction:column;gap:6px;margin:2px 0 10px}
+.signups-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:13px}
+.signups-h span{color:var(--muted);font-size:12px}
+.signups ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.signups li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:7px 11px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line);font-size:13px}
+.signups li.is-me{border-color:var(--sun)}
+.su-name{min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.su-name small{font-weight:400;color:var(--muted)}
+.su-meta{flex-shrink:0;max-width:60%;color:var(--muted);font-size:12px;text-align:right}
+.day-team .svc-date{margin-bottom:6px}
 .meter{height:6px;border-radius:6px;background:var(--canvas);overflow:hidden}
 .meter i{display:block;height:100%;border-radius:6px;background:var(--ink);width:var(--w,0%);transition:width 1s var(--ease-out)}
 .page-enter .meter i{animation:meterIn 1.1s var(--ease-out) .3s both}

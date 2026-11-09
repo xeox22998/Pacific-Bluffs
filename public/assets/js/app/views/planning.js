@@ -493,24 +493,51 @@ function generateMonthSchedule() {
   toast(created.length + ' soirée(s) ajoutée(s) au planning.', 'success');
   renderPage(false, true);
 }
+/* Direction, comptabilité et managers : les personnes inscrites à une soirée (nom, poste, heure d'arrivée) */
+function signupNames(ev) { return ev.assignments.filter((a) => a.userId).map((a) => userLabel(a.userId)); }
+function signupList(ev) {
+  const inscrits = ev.assignments.filter((a) => a.userId);
+  const open = isOpenEvent(ev);
+  const libres = open ? 0 : ev.assignments.length - inscrits.length;
+  const n = inscrits.length;
+  const head = `<div class="signups-h"><b>${n ? `${n} inscrit${n > 1 ? 's' : ''}` : "Personne n'est encore inscrit"}</b>${libres ? `<span>${libres} poste${libres > 1 ? 's' : ''} libre${libres > 1 ? 's' : ''}</span>` : ''}</div>`;
+  if (!n) return `<div class="signups">${head}</div>`;
+  return `<div class="signups">${head}<ul>${inscrits.map((a) => {
+    const att = attendanceFor(ev.id, a.userId);
+    const arr = (att && att.heureArrivee) || a.heureArriveePrevue;
+    const meta = [open ? '' : a.poste, arr ? 'arrivée ' + arr : ''].filter(Boolean).join(' · ');
+    return `<li class="${a.userId === CURRENT_USER.id ? 'is-me' : ''}"><span class="su-name">${esc(userLabel(a.userId))}${a.userId === CURRENT_USER.id ? ' <small>(moi)</small>' : ''}</span>${meta ? `<span class="su-meta">${esc(meta)}</span>` : ''}</li>`;
+  }).join('')}</ul></div>`;
+}
 function openDayModal(date) {
   const evs = DB.events.filter((e) => e.date === date);
   const rdvs = rdvOn(date);
+  const see = canSeeSignups();
   let body = `<div data-day-modal="${date}"></div>`;
   if (!evs.length && !rdvs.length) body += '<p class="confirm-text muted">Aucune soirée programmée ce jour.</p>';
   evs.forEach((ev) => {
     const mine = ev.assignments.find((a) => a.userId === CURRENT_USER.id);
-    if (mine) { body += renderServiceCard(ev, mine, CURRENT_USER.id).replace('svc card lift', 'svc card inner day-ev'); return; }
+    const manageBtn = canManageEvents() ? `<button class="btn btn-xs" type="button" onclick="openEventDetail('${ev.id}')">${icon('users', 'sm')}${isOpenEvent(ev) ? 'Gérer' : "Gérer l'équipe et la soirée"}</button>` : '';
+    if (mine) {
+      body += renderServiceCard(ev, mine, CURRENT_USER.id).replace('svc card lift', 'svc card inner day-ev');
+      // inscrit soi-même : la direction, la comptabilité et les managers voient aussi le reste de l'équipe
+      if (see) body += `<div class="card inner day-ev day-team" style="--cc:${catColor(eventCat(ev))}"><span class="svc-date">Équipe de la soirée</span>${signupList(ev)}${manageBtn}</div>`;
+      return;
+    }
     const open = ev.assignments.map((a, i) => ({ a, i })).filter((x) => !x.a.userId);
     const inscrits = ev.assignments.filter((a) => a.userId);
+    const claim = open.length ? `<p class="field-hint">Postes disponibles — cliquez pour prendre un poste :</p>${open.map(({ a, i }) => `<div class="slot"><span>${esc(a.poste)}</span><button class="btn btn-xs btn-sun" type="button" onclick="claimPoste('${ev.id}',${i})">Prendre ce poste</button></div>`).join('')}` : '';
     let inner;
     if (isOpenEvent(ev)) {
-      inner = `<p class="field-hint">${inscrits.length ? `${inscrits.length} inscrit${inscrits.length > 1 ? 's' : ''} : ${inscrits.map((a) => esc(userLabel(a.userId))).join(', ')}` : 'Personne n\'est encore inscrit.'}</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-xs btn-sun" type="button" onclick="claimPoste('${ev.id}',-1)">${icon('plus', 'sm')}S'inscrire</button>${canManageEvents() ? `<button class="btn btn-xs" type="button" onclick="openEventDetail('${ev.id}')">${icon('users', 'sm')}Gérer</button>` : ''}</div>`;
+      inner = `${see ? signupList(ev) : `<p class="field-hint">${inscrits.length ? `${inscrits.length} inscrit${inscrits.length > 1 ? 's' : ''} : ${inscrits.map((a) => esc(userLabel(a.userId))).join(', ')}` : 'Personne n\'est encore inscrit.'}</p>`}
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-xs btn-sun" type="button" onclick="claimPoste('${ev.id}',-1)">${icon('plus', 'sm')}S'inscrire</button>${manageBtn}</div>`;
     } else if (canManageEvents()) {
-      inner = `<button class="btn btn-xs" type="button" onclick="openEventDetail('${ev.id}')">${icon('users', 'sm')}Gérer l'équipe et la soirée</button>`;
+      inner = signupList(ev) + manageBtn;
+    } else if (see) {
+      // manager : l'équipe inscrite, puis les postes encore libres
+      inner = signupList(ev) + (claim || `<button class="btn btn-xs btn-ghost" type="button" onclick="openEventDetail('${ev.id}')">Voir le détail</button>`);
     } else if (open.length) {
-      inner = `<p class="field-hint">Postes disponibles — cliquez pour prendre un poste :</p>${open.map(({ a, i }) => `<div class="slot"><span>${esc(a.poste)}</span><button class="btn btn-xs btn-sun" type="button" onclick="claimPoste('${ev.id}',${i})">Prendre ce poste</button></div>`).join('')}`;
+      inner = claim;
     } else {
       inner = `<p class="field-hint">Tous les postes sont attribués. <button class="btn btn-xs btn-ghost" type="button" onclick="openEventDetail('${ev.id}')">Voir le détail</button></p>`;
     }
@@ -562,6 +589,12 @@ function renderEventCard(ev) {
       <h3>${esc(ev.nom)}</h3>
       <div class="evc-meta"><span>${icon('clock', 'sm')}${esc(ev.heureDebut || '—')}</span><span>${icon('users', 'sm')}${isOpenEvent(ev) ? `${assigned} inscrit${assigned > 1 ? 's' : ''}` : `${assigned}/${ev.assignments.length}`}</span></div>
       ${isOpenEvent(ev) ? '' : `<div class="meter"><i style="--w:${Math.round((assigned / total) * 100)}%"></i></div>`}
+      ${canSeeSignups() ? (() => {
+    const names = signupNames(ev);
+    return names.length
+      ? `<p class="evc-team" title="${esc(names.join(', '))}">${icon('users', 'sm')}<span>${esc(names.slice(0, 4).join(', '))}${names.length > 4 ? ` +${names.length - 4}` : ''}</span></p>`
+      : `<p class="evc-team muted">${icon('users', 'sm')}<span>Aucun inscrit</span></p>`;
+  })() : ''}
       <div class="evc-foot">${catBadge(cat)}${statusBadge(ev.statut)}${isPublicEvent(ev) && ev.statut !== 'Annulée' ? `<span class="badge nodot">${icon('globe', 'sm')}Accueil</span>` : ''}${mine ? `<span class="badge sun">${isOpenEvent(ev) ? 'Inscrit' : 'Mon poste : ' + esc(mine.poste)}</span>` : (isOpenEvent(ev) ? '<span class="badge warn">Inscription libre</span>' : (hasOpen && !canManageEvents() ? '<span class="badge warn">Postes libres</span>' : ''))}</div>
     </div>
   </article>`;
