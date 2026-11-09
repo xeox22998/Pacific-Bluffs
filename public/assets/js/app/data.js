@@ -313,6 +313,7 @@ function seedData() {
     notifications: [],
     rdv: [],
     barSales: [],
+    joursSansSoiree: [], // jours dont la soirée a été retirée à la main
     menu: JSON.parse(JSON.stringify(CLUB.MENU)),
   };
 }

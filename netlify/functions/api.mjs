@@ -29,7 +29,9 @@ const SUB_ROLES = {
   EMPLOYE: ['Agent de sécurité', 'Barman / Barmaid', "Animateur / Agent d'accueil", 'Agent polyvalent'],
 };
 const validSubRole = (role, v) => ((SUB_ROLES[role] || []).includes(v) ? v : '');
-const COLS = ['users', 'events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales'];
+// joursSansSoiree : jours dont la soirée a été retirée à la main (le planning n'y remet pas de soirée classique)
+const COLS = ['users', 'events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree'];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // listes enregistrées d'un bloc : carte, cartes membres (tarifs, avantages) et cocons paradisiaques modifiés par la direction
 const WHOLE = ['postes', 'menu', 'couleurs', 'cartes', 'cocons'];
 const POSTER_MAX = 3000000; // affiche compressée par le navigateur : ~2 Mo maximum
@@ -146,12 +148,12 @@ async function addLog(store, userId, action, objet) {
   await putCol(store, 'activityLogs', logs.slice(0, 500));
 }
 async function loadAll(store) {
-  const [users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, postes, menu, couleurs, cartes, cocons, meta] = await Promise.all([
+  const [users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, joursSansSoiree, postes, menu, couleurs, cartes, cocons, meta] = await Promise.all([
     col(store, 'users'), col(store, 'events'), col(store, 'attendances'), col(store, 'accountingWeeks'), col(store, 'documents'),
-    col(store, 'activityLogs'), col(store, 'rdv'), col(store, 'barSales'), readJSON(store, 'col:postes', null), readJSON(store, 'col:menu', null),
+    col(store, 'activityLogs'), col(store, 'rdv'), col(store, 'barSales'), col(store, 'joursSansSoiree'), readJSON(store, 'col:postes', null), readJSON(store, 'col:menu', null),
     readJSON(store, 'col:couleurs', null), readJSON(store, 'col:cartes', null), readJSON(store, 'col:cocons', null), readMeta(store),
   ]);
-  return { users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, postes, menu, couleurs, cartes, cocons, meta };
+  return { users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, joursSansSoiree, postes, menu, couleurs, cartes, cocons, meta };
 }
 /* Type d'une soirée (Grand événement par défaut, sauf les soirées classiques) */
 const eventCat = (e) => e.categorie || (e.nom === 'Soirée classique' ? 'classique' : 'grand');
@@ -332,6 +334,7 @@ async function routeData(store, a) {
     activityLogs: all.activityLogs,
     rdv: ['DIRECTION', 'SECRETAIRE', 'MANAGER'].includes(role) ? all.rdv : [],
     barSales: employe ? all.barSales.filter((s) => s && s.userId === a.user.id) : all.barSales, // l'employé : ses ventes seulement
+    joursSansSoiree: all.joursSansSoiree,
     menu: all.menu,
     couleurs: all.couleurs,
     cartes: all.cartes,
@@ -351,6 +354,7 @@ async function routeSync(req, store, a) {
     // comptabilité : pas d'accès pour les employés (ils n'en reçoivent qu'un résumé)
     users: [true, D], events: [!G, D || S], attendances: [!G, D || M || S], accountingWeeks: [D || S || M, D || S],
     documents: [D || S || M || G, D], activityLogs: [true, false], rdv: [D || S, D], barSales: [!G, !G],
+    joursSansSoiree: [D || S, D || S], // comme la suppression des soirées
   };
   const wholePerms = { postes: D, menu: D, couleurs: D || S, cartes: D, cocons: D };
   const denied = [];
@@ -360,6 +364,8 @@ async function routeSync(req, store, a) {
       let rms = Array.isArray(c && c.remove) ? c.remove.slice(0, 5000) : [];
       const [canUp, canRm] = perms[name];
       if ((ups.length && !canUp) || (rms.length && !canRm)) { denied.push(name); continue; }
+      // un jour vidé = { id: « js_<date> », date } et rien d'autre
+      if (name === 'joursSansSoiree') ups = ups.filter((r) => r && DATE_RE.test(r.date)).map((r) => ({ id: 'js_' + r.date, date: r.date }));
       let list = await col(store, name);
       const index = new Map(list.map((r, i) => [r && r.id, i]));
       if (name === 'barSales') {
@@ -605,7 +611,7 @@ async function routeImport(req, store, a) {
   if (!me) { users.push(a.user); me = a.user; } // ne jamais enfermer dehors la personne qui importe
   me.statut = 'Actif';
   me.role = 'DIRECTION';
-  for (const name of ['events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales']) {
+  for (const name of ['events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree']) {
     await putCol(store, name, Array.isArray(d[name]) ? d[name] : []);
   }
   await putCol(store, 'users', users);
@@ -626,7 +632,7 @@ async function routeImport(req, store, a) {
 
 async function routeReset(store, a) {
   if (a.user.role !== 'DIRECTION') return fail(403, 'Réservé à la direction.');
-  for (const name of ['events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales']) await putCol(store, name, []);
+  for (const name of ['events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree']) await putCol(store, name, []);
   await putCol(store, 'users', [a.user]);
   await dropPhotos(store, await readJSON(store, 'col:menu', null), []);
   await store.delete('col:postes');

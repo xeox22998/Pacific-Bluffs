@@ -437,8 +437,28 @@ function shiftCalMonth(delta) {
   autoClassicSoirees(CAL_YEAR, CAL_MONTH);               // un mois à venir s'affiche déjà rempli
   renderPage(false, true);
 }
+/* Jours dont la soirée a été retirée à la main (suppression, ou soirée déplacée / changée en réunion) :
+   les soirées classiques automatiques n'y reviennent plus. Un enregistrement par jour, partagé par toute l'équipe. */
+function noSoireeDays() { return new Set((DB.joursSansSoiree || []).map((j) => j && j.date)); }
+function hasSoiree(date) { return DB.events.some((e) => e.date === date && !isOpenEvent(e)); }
+function markNoSoiree(date) {
+  if (!date || date < todayISO() || hasSoiree(date) || noSoireeDays().has(date)) return;
+  DB.joursSansSoiree.push({ id: 'js_' + date, date });
+}
+/* Remettre la soirée classique d'un jour vidé à la main (direction, comptabilité) */
+function restoreClassic(date) {
+  if (!canManageEvents()) return;
+  const [y, m] = date.split('-').map(Number);
+  const ev = buildClassicEvents(y, m, DB.events, DB.postes, date).find((e) => e.date === date);
+  DB.joursSansSoiree = DB.joursSansSoiree.filter((j) => j.date !== date);
+  if (ev) DB.events.push(ev);
+  logActivity('Soirée classique remise', fmtDate(date));
+  toast('Soirée classique remise au planning.', 'success');
+  refresh(); openDayModal(date);
+}
 /* Soirées classiques ajoutées d'office (direction, comptabilité) : chaque soir à partir d'aujourd'hui,
-   pour le mois en cours et les 2 suivants, plus le mois affiché s'il est dans l'année à venir */
+   pour le mois en cours et les 2 suivants, plus le mois affiché s'il est dans l'année à venir,
+   sauf les jours dont la soirée a été retirée à la main */
 function autoClassicSoirees(year, month) {
   if (!CURRENT_USER || !DB || !canManageEvents() || !DB.postes.length) return 0;
   const now = new Date();
@@ -446,9 +466,13 @@ function autoClassicSoirees(year, month) {
   const ahead = year ? (year - now.getFullYear()) * 12 + (month - 1 - now.getMonth()) : -1;
   if (ahead > 2 && ahead <= 12) months.push([year, month]);
   const today = todayISO();
+  // les jours vidés déjà passés ne servent plus : on les oublie
+  const pruned = DB.joursSansSoiree.some((j) => !j || j.date < today);
+  if (pruned) DB.joursSansSoiree = DB.joursSansSoiree.filter((j) => j && j.date >= today);
+  const skip = noSoireeDays();
   const created = [];
-  months.forEach(([y, m]) => created.push(...buildClassicEvents(y, m, DB.events.concat(created), DB.postes, today)));
-  if (!created.length) return 0;
+  months.forEach(([y, m]) => created.push(...buildClassicEvents(y, m, DB.events.concat(created), DB.postes, today).filter((e) => !skip.has(e.date))));
+  if (!created.length) { if (pruned) saveSoon(); return 0; }
   DB.events.push(...created);
   logActivity('Soirées classiques ajoutées automatiquement', `${created.length} soirée(s)`);
   saveSoon();
@@ -486,11 +510,17 @@ function renderMonthCalendar(year, month, perspective) {
   return html;
 }
 function generateMonthSchedule() {
-  const created = buildClassicEvents(CAL_YEAR, CAL_MONTH, DB.events, DB.postes);
-  if (!created.length) { toast('Toutes les soirées de ce mois sont déjà programmées.', 'success'); return; }
+  // les jours dont la soirée a été retirée à la main restent vides (bouton « Remettre la soirée classique » sur le jour)
+  const skip = noSoireeDays();
+  const all = buildClassicEvents(CAL_YEAR, CAL_MONTH, DB.events, DB.postes);
+  const created = all.filter((e) => !skip.has(e.date));
+  const kept = all.length - created.length;
+  const note = kept ? ` ${kept} jour${kept > 1 ? 's' : ''} vidé${kept > 1 ? 's' : ''} à la main ${kept > 1 ? 'restent' : 'reste'} vide${kept > 1 ? 's' : ''}.` : '';
+  if (!created.length) { toast('Toutes les soirées de ce mois sont déjà programmées.' + note, 'success'); return; }
   DB.events.push(...created);
   logActivity('Planning généré', `${created.length} soirée(s) classique(s) — ${MONTHS_FR[CAL_MONTH - 1]} ${CAL_YEAR}`);
-  toast(created.length + ' soirée(s) ajoutée(s) au planning.', 'success');
+  toast(created.length + ' soirée(s) ajoutée(s) au planning.' + note, 'success');
+  saveSoon();
   renderPage(false, true);
 }
 /* Direction, comptabilité et managers : les personnes inscrites à une soirée (nom, poste, heure d'arrivée) */
@@ -547,6 +577,11 @@ function openDayModal(date) {
       ${inner}
     </div>`;
   });
+  // soirée retirée à la main ce jour-là : elle ne revient pas toute seule, la direction peut la remettre
+  if (canManageEvents() && !hasSoiree(date) && noSoireeDays().has(date)) {
+    body += `<div class="card inner day-ev day-off"><p class="field-hint">La soirée de ce jour a été retirée : elle ne sera pas recréée automatiquement.</p>
+      <button class="btn btn-xs" type="button" onclick="restoreClassic('${date}')">${icon('refresh', 'sm')}Remettre la soirée classique</button></div>`;
+  }
   rdvs.forEach((r) => {
     body += `<div class="card inner day-ev" style="--cc:${catColor('rdv')}">
       <span class="svc-date">${esc(r.heure || 'Heure à définir')} · ${catBadge('rdv')}</span>
@@ -773,9 +808,12 @@ function openEditEventModal(eventId) {
 async function saveEditEvent(eventId, btn) {
   const ev = DB.events.find((e) => e.id === eventId);
   if (!requireFields(['eEvNom', 'eEvDate'], 'Indiquez le nom et la date.')) return;
+  const oldDate = ev.date, wasSoiree = !isOpenEvent(ev);
   ev.nom = document.getElementById('eEvNom').value.trim();
   ev.date = document.getElementById('eEvDate').value;
   ev.categorie = document.getElementById('evCat').value;
+  // soirée déplacée ou changée en réunion / rendez-vous : son ancien jour reste vide
+  if (wasSoiree && (oldDate !== ev.date || isOpenEvent(ev))) markNoSoiree(oldDate);
   // Réunion / rendez-vous : on garde les personnes déjà inscrites, sans postes vides ; soirée : postes standards si aucun
   if (isOpenEvent(ev)) ev.assignments = ev.assignments.filter((a) => a.userId);
   else if (!ev.assignments.length) ev.assignments = defaultSlots();
@@ -794,6 +832,7 @@ function deleteEvent(eventId) {
   confirmAction(`Supprimer la soirée « ${esc(ev ? ev.nom : '')} » du ${fmtDate(ev ? ev.date : '')} ?`, () => {
     DB.events = DB.events.filter((e) => e.id !== eventId);
     DB.attendances = DB.attendances.filter((a) => a.eventId !== eventId);
+    if (ev && !isOpenEvent(ev)) markNoSoiree(ev.date); // le jour reste vide : pas de soirée classique remise automatiquement
     logActivity('Soirée supprimée', ev ? ev.nom : '');
     toast('Soirée supprimée.', 'success'); refresh();
   }, 'Supprimer');
