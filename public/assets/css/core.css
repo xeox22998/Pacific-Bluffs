@@ -395,6 +395,10 @@ select.input{appearance:none;-webkit-appearance:none;padding-right:46px;cursor:p
   animation:floaty 4.5s ease-in-out infinite;transition:transform .7s var(--ease-spring)}
 @keyframes floaty{0%,100%{translate:0 -4%}50%{translate:0 4%}}
 
+/* Photo d'un article (importée par la direction) à la place de l'émoji : le halo coloré reste
+   visible derrière un PNG détouré, le reflet passe par-dessus */
+.viz-photo img{position:absolute;inset:0;z-index:0;width:100%;height:100%;object-fit:cover;display:block;transition:transform .9s var(--ease-out)}
+
 /* Typo néon */
 .viz-type span{font:600 32cqi/.9 var(--font-display);letter-spacing:-.06em;color:transparent;
   -webkit-text-stroke:1.5px hsl(var(--hue) 100% 78%);text-shadow:0 0 28px hsl(var(--hue) 100% 58% / .7);
@@ -419,6 +423,13 @@ select.input{appearance:none;-webkit-appearance:none;padding-right:46px;cursor:p
 .mn-in::after{content:"";position:absolute;left:50%;top:-40%;width:120%;height:70%;transform:translateX(-50%);border-radius:50%;pointer-events:none;
   background:radial-gradient(closest-side,rgba(255,110,100,.26),transparent 70%);transition:opacity .5s;opacity:.6}
 .menu-neon:hover .mn-in::after{opacity:1}
+/* Menu avec photo : la photo en haut de la carte, fondue dans le fond nuit */
+.mn-in.has-photo{padding-top:0}
+.mn-in.has-photo::before{display:none}
+.mn-photo{position:relative;width:calc(100% + 44px);margin:0 -22px 10px;aspect-ratio:16/10;overflow:hidden;background:#0e0a26}
+.mn-photo img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .9s var(--ease-out)}
+.mn-photo::after{content:"";position:absolute;inset:auto 0 0;height:45%;background:linear-gradient(rgba(14,10,38,0),#0e0a26);pointer-events:none}
+.menu-neon:hover .mn-photo img{transform:scale(1.06)}
 .mn-in h3{position:relative;font:600 clamp(22px,2.2vw,28px)/1.05 var(--font-display);letter-spacing:-.04em;color:#ffc27a;text-shadow:0 0 18px rgba(255,120,80,.6)}
 .mn-price{position:relative;font:600 32px/1 var(--font-display);letter-spacing:-.04em;margin:6px 0 4px}
 .mn-desc{position:relative;font-size:13.5px;line-height:1.45;color:rgba(255,255,255,.7);max-width:30ch;margin-bottom:8px}

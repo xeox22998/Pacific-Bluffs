@@ -2,17 +2,18 @@
    PACIFIC BLUFFS — Base partagée (Netlify Function + Netlify Blobs)
 
    Routes (toutes sous /api/) :
-   - publiques  : GET health · GET public · GET poster/<id>
+   - publiques  : GET health · GET public · GET poster/<id> · GET photo/<article>
                   POST login · POST register
      (les privatisations ne viennent plus de l'accueil : le staff les note, collection « rdv »)
-   - connectées : GET data · GET version · POST sync · POST poster · POST logout
+   - connectées : GET data · GET version · POST sync · POST poster · POST photo · POST logout
                   POST password · POST users · POST bootstrap · GET export
                   POST import · POST reset · POST piece · GET piece/<compte>/<type>
 
    Stockage : un document par collection (clé « col:<nom> »), plus « meta »
-   (version, initialisation), « sessions » et une clé par affiche de soirée
-   (« poster:<id> », gardée à part pour ne pas alourdir la synchro). Les mots
-   de passe sont stockés sous forme d'empreinte PBKDF2-SHA256 salée.
+   (version, initialisation), « sessions », une clé par affiche de soirée
+   (« poster:<id> ») et une par photo d'article de la carte (« photo:<id> »),
+   gardées à part pour ne pas alourdir la synchro. Les mots de passe sont
+   stockés sous forme d'empreinte PBKDF2-SHA256 salée.
    ===================================================================== */
 import { getStore } from '@netlify/blobs';
 import { webcrypto } from 'node:crypto';
@@ -32,6 +33,25 @@ const COLS = ['users', 'events', 'attendances', 'accountingWeeks', 'documents', 
 // listes enregistrées d'un bloc : carte, cartes membres (tarifs, avantages) et cocons paradisiaques modifiés par la direction
 const WHOLE = ['postes', 'menu', 'couleurs', 'cartes', 'cocons'];
 const POSTER_MAX = 3000000; // affiche compressée par le navigateur : ~2 Mo maximum
+const PHOTO_MAX = 1500000;  // photo d'un article de la carte, réduite par le navigateur : ~1 Mo maximum
+const IMG_DATA = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
+/* Carte enregistrée : la photo d'un article est une version courte (« photo ») qui renvoie à la clé
+   « photo:<id> » ; l'image elle-même ne voyage jamais dans la liste (photoData = mode local seulement) */
+function cleanMenu(list) {
+  return list.map((m) => {
+    if (!m || typeof m !== 'object') return m;
+    const out = { ...m };
+    delete out.photoData;
+    if (!(typeof out.photo === 'string' && /^[a-z0-9]{1,20}$/.test(out.photo))) delete out.photo;
+    return out;
+  });
+}
+/* Photos des articles qui ne sont plus sur la carte (ou dont la photo a été retirée) : effacées */
+async function dropPhotos(store, before, after) {
+  if (!Array.isArray(before)) return;
+  const kept = new Set((Array.isArray(after) ? after : []).filter((m) => m && m.photo).map((m) => m.id));
+  for (const m of before) if (m && m.photo && typeof m.id === 'string' && !kept.has(m.id)) await store.delete('photo:' + m.id);
+}
 // Pièces jointes des fiches de l'équipe (privées : jamais servies au public)
 const PIECES = ['permis', 'identite', 'arme'];
 const PIECE_READERS = ['DIRECTION', 'SECRETAIRE', 'MANAGER', 'GOUVERNEMENT']; // lisent toutes les fiches (l'employé : la sienne)
@@ -229,6 +249,14 @@ async function routePosterGet(store, id) {
     status: 200, headers: { 'content-type': p.type || 'image/jpeg', 'cache-control': 'public, max-age=31536000, immutable' },
   });
 }
+/* Photo d'un article de la carte : même principe (l'adresse change avec la photo) */
+async function routePhotoGet(store, id) {
+  const p = await readJSON(store, 'photo:' + id, null);
+  if (!p || !p.data) return fail(404, 'Photo introuvable.');
+  return new Response(b64ToBytes(p.data), {
+    status: 200, headers: { 'content-type': p.type || 'image/jpeg', 'cache-control': 'public, max-age=31536000, immutable' },
+  });
+}
 
 
 async function routeLogin(req, store) {
@@ -391,7 +419,12 @@ async function routeSync(req, store, a) {
       await putCol(store, name, list);
     } else if (WHOLE.includes(name)) {
       if (!wholePerms[name]) { denied.push(name); continue; }
-      if (c && Array.isArray(c.value)) await putCol(store, name, c.value);
+      if (!(c && Array.isArray(c.value))) continue;
+      if (name === 'menu') {
+        const value = cleanMenu(c.value);
+        await dropPhotos(store, await readJSON(store, 'col:menu', null), value);
+        await putCol(store, name, value);
+      } else await putCol(store, name, c.value);
     }
   }
   const meta = await bump(store);
@@ -421,6 +454,34 @@ async function routePosterSet(req, store, a) {
     await putCol(store, 'events', events);
   }
   await addLog(store, a.user.id, v ? 'Affiche ajoutée' : 'Affiche retirée', ev ? ev.nom : id);
+  const meta = await bump(store);
+  return json({ ok: true, v, version: meta.version });
+}
+
+/* Envoi (ou retrait si data est vide) de la photo d'un article de la carte — direction seulement.
+   L'espace staff note ensuite la version renvoyée (« photo ») sur l'article et enregistre la carte. */
+async function routePhotoSet(req, store, a) {
+  if (a.user.role !== 'DIRECTION') return fail(403, 'Réservé à la direction.');
+  const b = await readBody(req);
+  const id = clean(b.itemId, 60);
+  if (!/^[\w-]{1,60}$/.test(id)) return fail(400, 'Article inconnu.');
+  let v = '';
+  if (b.data) {
+    const m = IMG_DATA.exec(String(b.data));
+    if (!m) return fail(400, 'Image non reconnue : choisissez une photo JPEG ou PNG.');
+    if (m[2].length > PHOTO_MAX) return fail(413, 'Photo trop lourde, choisissez une image plus petite.');
+    v = Date.now().toString(36);
+    await store.setJSON('photo:' + id, { type: m[1], data: m[2], v });
+  } else {
+    await store.delete('photo:' + id);
+  }
+  const menu = await readJSON(store, 'col:menu', null);
+  const it = Array.isArray(menu) ? menu.find((x) => x && x.id === id) : null;
+  if (it) {
+    if (v) it.photo = v; else delete it.photo;
+    await putCol(store, 'menu', menu);
+  }
+  await addLog(store, a.user.id, v ? 'Photo de la carte ajoutée' : 'Photo de la carte retirée', it ? it.nom : clean(b.nom, 80) || id);
   const meta = await bump(store);
   return json({ ok: true, v, version: meta.version });
 }
@@ -518,7 +579,7 @@ async function routeBootstrap(req, store, a) {
     if (Array.isArray(b[name]) && !(await col(store, name)).length) await putCol(store, name, b[name]);
   }
   for (const name of WHOLE) {
-    if (Array.isArray(b[name]) && (await readJSON(store, 'col:' + name, null)) === null) await putCol(store, name, b[name]);
+    if (Array.isArray(b[name]) && (await readJSON(store, 'col:' + name, null)) === null) await putCol(store, name, name === 'menu' ? cleanMenu(b[name]) : b[name]);
   }
   await addLog(store, a.user.id, 'Initialisation de la base', 'Pacific Bluffs — Espace staff');
   const m = await bump(store, { initialized: true });
@@ -548,7 +609,15 @@ async function routeImport(req, store, a) {
     await putCol(store, name, Array.isArray(d[name]) ? d[name] : []);
   }
   await putCol(store, 'users', users);
-  for (const name of WHOLE) if (Array.isArray(d[name])) await putCol(store, name, d[name]);
+  for (const name of WHOLE) {
+    if (!Array.isArray(d[name])) continue;
+    if (name !== 'menu') { await putCol(store, name, d[name]); continue; }
+    // les photos de la carte ne sont pas dans la sauvegarde : on ne garde que celles encore en ligne ici
+    const menu = cleanMenu(d.menu);
+    for (const m of menu) if (m && m.photo && !(await readJSON(store, 'photo:' + m.id, null))) delete m.photo;
+    await dropPhotos(store, await readJSON(store, 'col:menu', null), menu);
+    await putCol(store, 'menu', menu);
+  }
   await store.setJSON('sessions', { [a.token]: { userId: me.id, exp: Date.now() + SESSION_MS } });
   await addLog(store, me.id, 'Sauvegarde importée', `${users.length} compte(s), ${d.accountingWeeks.length} semaine(s)`);
   const meta = await bump(store, { initialized: true });
@@ -559,6 +628,7 @@ async function routeReset(store, a) {
   if (a.user.role !== 'DIRECTION') return fail(403, 'Réservé à la direction.');
   for (const name of ['events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales']) await putCol(store, name, []);
   await putCol(store, 'users', [a.user]);
+  await dropPhotos(store, await readJSON(store, 'col:menu', null), []);
   await store.delete('col:postes');
   await store.delete('col:menu');
   await store.delete('col:couleurs');
@@ -582,6 +652,8 @@ export default async (req) => {
     if (route === 'public' && method === 'GET') return await routePublic(store);
     const pm = /^poster\/([\w-]{1,60})$/.exec(route);
     if (pm && method === 'GET') return await routePosterGet(store, pm[1]);
+    const ph = /^photo\/([\w-]{1,60})$/.exec(route);
+    if (ph && method === 'GET') return await routePhotoGet(store, ph[1]);
     if (route === 'login' && method === 'POST') return await routeLogin(req, store);
     if (route === 'register' && method === 'POST') return await routeRegister(req, store);
 
@@ -591,6 +663,7 @@ export default async (req) => {
     if (route === 'version' && method === 'GET') return json({ version: (await readMeta(store)).version || 0 });
     if (route === 'sync' && method === 'POST') return await routeSync(req, store, a);
     if (route === 'poster' && method === 'POST') return await routePosterSet(req, store, a);
+    if (route === 'photo' && method === 'POST') return await routePhotoSet(req, store, a);
     if (route === 'piece' && method === 'POST') return await routePieceSet(req, store, a);
     const pc = /^piece\/([\w-]{1,60})\/(\w{1,20})$/.exec(route);
     if (pc && method === 'GET') return await routePieceGet(store, a, pc[1], pc[2]);

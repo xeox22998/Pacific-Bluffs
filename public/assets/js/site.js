@@ -190,6 +190,9 @@
   const CATS = ['Plats', 'Desserts', 'Cocktails', 'Mocktails', 'Vins & Champagne'];
   const SINGULAR = { 'Plats': 'Plat', 'Desserts': 'Dessert', 'Cocktails': 'Cocktail', 'Mocktails': 'Mocktail', 'Vins & Champagne': 'Cave' };
   const flagHtml = (m) => (m.drapeau ? ` <span class="flag" role="img" aria-label="Origine">${esc(m.drapeau)}</span>` : '');
+  // Photo importée par la direction (base partagée), ou gardée dans ce navigateur (mode local)
+  const photoOf = (m) => (m.photo ? '/api/photo/' + encodeURIComponent(m.id) + '?v=' + encodeURIComponent(m.photo)
+    : (typeof m.photoData === 'string' && m.photoData.startsWith('data:image/') ? m.photoData : ''));
   let currentCat = 'Tout';
   let renderedMenu = '';
   function menuFilters() {
@@ -229,7 +232,9 @@
     $('#menuGrid').innerHTML = dishes.map((m, i) => `
       <article class="prod" data-cat="${esc(m.categorie)}" data-reveal style="--d:${(i % 4) * 70}ms">
         <div class="prod-card card" data-tilt="10">
-          <div class="viz viz-emoji" style="--hue:${Number(m.hue) || hueFor(m.nom)}"><span class="prod-tag">${SINGULAR[m.categorie] || esc(m.categorie)}</span><span class="em" aria-hidden="true">${esc(m.emoji || '🍽️')}</span></div>
+          ${photoOf(m)
+    ? `<div class="viz viz-photo"><span class="prod-tag">${SINGULAR[m.categorie] || esc(m.categorie)}</span><img src="${esc(photoOf(m))}" alt="${esc(m.nom)}" loading="lazy"></div>`
+    : `<div class="viz viz-emoji" style="--hue:${Number(m.hue) || hueFor(m.nom)}"><span class="prod-tag">${SINGULAR[m.categorie] || esc(m.categorie)}</span><span class="em" aria-hidden="true">${esc(m.emoji || '🍽️')}</span></div>`}
           <div class="prod-meta"><b>${esc(m.nom)}${flagHtml(m)}</b><span class="price">${esc(m.prix)} $</span></div>
           ${m.desc ? `<p class="prod-desc">${esc(m.desc)}</p>` : ''}
         </div>
@@ -237,7 +242,8 @@
     const menus = items.filter((m) => m.categorie === 'Menus');
     $('#menusGrid').innerHTML = menus.map((m) => `
       <article class="menu-neon" data-reveal="rise">
-        <div class="mn-in">
+        <div class="mn-in${photoOf(m) ? ' has-photo' : ''}">
+          ${photoOf(m) ? `<div class="mn-photo"><img src="${esc(photoOf(m))}" alt="${esc(m.nom)}" loading="lazy"></div>` : ''}
           <h3>${esc(m.nom)}</h3>
           <div class="mn-price">${esc(m.prix)} $</div>
           ${m.desc ? `<p class="mn-desc">${esc(m.desc)}</p>` : ''}

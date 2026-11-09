@@ -294,6 +294,57 @@ function readPosterFile(file) {
   });
 }
 
+/* ---------------- Photos des articles de la carte ---------------- */
+/* Adresse de la photo : servie par la base partagée (« photo » = version), ou gardée dans ce navigateur en mode local */
+function photoSrc(m) {
+  if (!m) return '';
+  if (m.photo) return '/api/photo/' + encodeURIComponent(m.id) + '?v=' + encodeURIComponent(m.photo);
+  return m.photoData || '';
+}
+/* Photo JPEG ou PNG réduite à 900 px : JPEG léger, ou image transparente gardée transparente (PNG détouré) */
+function readPhotoFile(file) {
+  return new Promise((resolve, reject) => {
+    const png = !!file && (file.type === 'image/png' || (!file.type && /\.png$/i.test(file.name)));
+    if (!file || !(png || /^image\/p?jpeg$/.test(file.type) || (!file.type && /\.jpe?g$/i.test(file.name)))) { reject(new Error('Choisissez une photo JPEG ou PNG.')); return; }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const k = Math.min(1, 900 / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.naturalWidth * k));
+      c.height = Math.max(1, Math.round(img.naturalHeight * k));
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0, c.width, c.height);
+      const limit = isShared() ? 700000 : 260000; // mode local : la place du navigateur est comptée
+      if (png) {
+        let alpha = false;
+        try { const px = g.getImageData(0, 0, c.width, c.height).data; for (let i = 3; i < px.length; i += 4) if (px[i] < 250) { alpha = true; break; } } catch (e) { /* image illisible : JPEG */ }
+        if (alpha) {
+          for (const type of ['image/webp', 'image/png']) {
+            const d = c.toDataURL(type, 0.86);
+            if (d.startsWith('data:' + type) && d.length <= limit) { resolve(d); return; }
+          }
+        }
+        // fond sombre de la carte sous les parties transparentes
+        const flat = document.createElement('canvas');
+        flat.width = c.width; flat.height = c.height;
+        const f = flat.getContext('2d');
+        f.fillStyle = '#0d0a22';
+        f.fillRect(0, 0, c.width, c.height);
+        f.drawImage(c, 0, 0);
+        c.getContext('2d').drawImage(flat, 0, 0);
+      }
+      let q = 0.86, data = c.toDataURL('image/jpeg', q);
+      while (data.length > limit && q > 0.4) { q -= 0.08; data = c.toDataURL('image/jpeg', q); }
+      if (data.length > limit) { reject(new Error('Photo trop lourde, choisissez une image plus petite.')); return; }
+      resolve(data);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Cette photo n'a pas pu être lue.")); };
+    img.src = url;
+  });
+}
+
 /* ---------------- Notifications ---------------- */
 function toast(msg, type) {
   const wrap = document.getElementById('toasts');
@@ -318,7 +369,7 @@ function openModal(title, bodyHtml, footerHtml, opts) {
       ${footerHtml ? `<div class="modal-f">${footerHtml}</div>` : ''}
     </div></div>`;
   const first = root.querySelector('.modal-b input:not([type=hidden]),.modal-b select,.modal-b textarea');
-  setTimeout(() => (first || root.querySelector('[data-close-modal]')).focus({ preventScroll: true }), 60);
+  setTimeout(() => { const el = first || root.querySelector('[data-close-modal]'); if (el && el.isConnected) el.focus({ preventScroll: true }); }, 60);
   if (window.Motion) Motion.scan(root);
 }
 function closeModal(instant) {

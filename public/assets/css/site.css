@@ -216,6 +216,7 @@
 .prod-card.is-tilting{transition:transform .12s linear,box-shadow .5s}
 .prod-card:hover{box-shadow:var(--sh-xl),0 0 0 1px rgba(255,110,90,.4)}
 .prod-card:hover .em{transform:scale(1.2) rotate(-10deg)}
+.prod-card:hover .viz-photo img{transform:scale(1.07)}
 .prod-tag{position:absolute;top:10px;left:10px;z-index:4;height:24px;padding:0 10px;border-radius:var(--r-pill);background:rgba(255,230,240,.16);color:#fff;font-size:11px;font-weight:500;display:inline-flex;align-items:center;backdrop-filter:blur(6px)}
 .prod-meta{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:12px 8px 4px}
 .prod-meta b{display:block;font-size:15.5px;font-weight:600;letter-spacing:-.025em}

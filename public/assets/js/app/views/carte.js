@@ -1,7 +1,8 @@
 /* =====================================================================
    PACIFIC BLUFFS — La carte (modifiable par la direction, affichée sur l'accueil)
-   Rubriques : articles par catégorie, cartes membres (tarif, accès, avantages)
-   et cocons paradisiaques (chambres pour 2 vendues sur la fiche hospitalité).
+   Rubriques : articles par catégorie (avec photo JPEG / PNG facultative à la place
+   de l'émoji), cartes membres (tarif, accès, avantages) et cocons paradisiaques
+   (chambres pour 2 vendues sur la fiche hospitalité).
    ===================================================================== */
 
 let carteCat = 'Plats';
@@ -27,7 +28,7 @@ function renderCarte() {
       : 'Cocons paradisiaques et prix en vigueur.';
   } else {
     if (edit) actions = `<button class="btn btn-sm" type="button" onclick="resetCarte()">${icon('refresh', 'sm')}Carte d'origine</button><button class="btn btn-sm btn-sun" type="button" onclick="openItemModal()" data-magnetic="0.2">${icon('plus', 'sm')}Ajouter un article</button>`;
-    sub = edit ? "Modifiez les articles, les prix et la composition des menus : l'accueil du site affiche automatiquement la carte à jour (articles disponibles uniquement)."
+    sub = edit ? "Modifiez les articles, les prix, les photos (JPEG ou PNG) et la composition des menus : l'accueil du site affiche automatiquement la carte à jour (articles disponibles uniquement)."
       : 'Carte et prix en vigueur au bar.';
   }
   let html = pageHead('La carte', 'La carte du Pacific Bluffs', sub, actions);
@@ -69,7 +70,8 @@ function renderCarte() {
   if (carteCat === 'Menus') {
     html += `<div class="menus-grid stagger">${list.map((m) => `
       <article class="menu-neon ${m.dispo === false ? 'off' : ''}">
-        <div class="mn-in">
+        <div class="mn-in${photoSrc(m) ? ' has-photo' : ''}">
+          ${photoSrc(m) ? `<div class="mn-photo"><img src="${esc(photoSrc(m))}" alt="${esc(m.nom)}" loading="lazy"></div>` : ''}
           <h3>${esc(m.nom)}</h3>
           <div class="mn-price">${fmtMoney(m.prix)}</div>
           ${m.desc ? `<p class="mn-desc">${esc(m.desc)}</p>` : ''}
@@ -83,7 +85,7 @@ function renderCarte() {
 
   html += `<div class="carte-grid stagger">${list.map((m) => `
     <article class="carte-item card lift ${m.dispo === false ? 'off' : ''}">
-      <div class="viz viz-emoji" style="--hue:${Number(m.hue) || hueFor(m.nom)}"><span class="em" aria-hidden="true">${esc(m.emoji || '🍽️')}</span>${m.dispo === false ? '<span class="ci-off">Indisponible</span>' : ''}</div>
+      ${itemViz(m, m.dispo === false ? '<span class="ci-off">Indisponible</span>' : '')}
       <div class="ci-body">
         <div class="ci-top"><b>${esc(m.nom)}${m.drapeau ? ` <span class="flag" role="img" aria-label="Origine">${esc(m.drapeau)}</span>` : ''}</b><span class="price-tag">${fmtMoney(m.prix)}</span></div>
         ${m.desc ? `<p>${esc(m.desc)}</p>` : ''}
@@ -92,10 +94,84 @@ function renderCarte() {
     </article>`).join('')}</div>`;
   return html;
 }
+/* Visuel d'un article : sa photo si la direction en a importé une, sinon son émoji */
+function itemViz(m, inner) {
+  const src = photoSrc(m);
+  if (src) return `<div class="viz viz-photo"><img src="${esc(src)}" alt="${esc(m.nom)}" loading="lazy">${inner}</div>`;
+  return `<div class="viz viz-emoji" style="--hue:${Number(m.hue) || hueFor(m.nom)}"><span class="em" aria-hidden="true">${esc(m.emoji || '🍽️')}</span>${inner}</div>`;
+}
+const PHOTO_ACCEPT = 'image/jpeg,image/png,.jpg,.jpeg,.png';
 function itemActions(m) {
   return `<button class="btn btn-xs" type="button" onclick="openItemModal('${m.id}')">${icon('edit', 'sm')}Modifier</button>
+    <label class="btn btn-xs" title="Importer une photo JPEG ou PNG">${icon('image', 'sm')}${photoSrc(m) ? 'Changer la photo' : 'Photo'}<input type="file" accept="${PHOTO_ACCEPT}" hidden onchange="quickPhoto('${m.id}',this)"></label>
     <button class="btn btn-xs" type="button" onclick="toggleDispo('${m.id}')">${m.dispo === false ? 'Remettre en vente' : 'Indisponible'}</button>
     <button class="icon-btn xs" type="button" onclick="deleteItem('${m.id}')" aria-label="Supprimer">${icon('trash', 'sm')}</button>`;
+}
+
+/* ---------- Photos des articles (JPEG ou PNG importés par la direction) ---------- */
+let PHOTO_EDIT = null;
+function photoField(m) {
+  PHOTO_EDIT = { data: null, changed: false };
+  const src = photoSrc(m);
+  return `<div class="field"><label>Photo (facultatif)</label>
+    <div class="poster-field">
+      <div class="poster-prev photo-prev" id="photoPrev">${src ? `<img src="${esc(src)}" alt="Photo actuelle">` : `<span>${icon('image')}Pas de photo : l'émoji est affiché</span>`}</div>
+      <div class="poster-side">
+        <label class="btn btn-sm">${icon('upload', 'sm')}Importer une photo<input type="file" accept="${PHOTO_ACCEPT}" hidden onchange="pickPhoto(this)"></label>
+        <button class="btn btn-sm btn-ghost" type="button" id="photoRm" onclick="removePhoto()" ${src ? '' : 'hidden'}>${icon('trash', 'sm')}Retirer la photo</button>
+        <p class="field-hint">JPEG ou PNG, réduite automatiquement. Elle remplace l'émoji sur l'accueil du site et dans La carte.</p>
+      </div>
+    </div></div>`;
+}
+async function pickPhoto(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    const data = await readPhotoFile(file);
+    PHOTO_EDIT = { data, changed: true };
+    document.getElementById('photoPrev').innerHTML = `<img src="${data}" alt="Nouvelle photo">`;
+    document.getElementById('photoRm').hidden = false;
+  } catch (e) { toast(e.message, 'error'); }
+}
+function removePhoto() {
+  PHOTO_EDIT = { data: null, changed: true };
+  document.getElementById('photoPrev').innerHTML = `<span>${icon('image')}Pas de photo : l'émoji est affiché</span>`;
+  document.getElementById('photoRm').hidden = true;
+}
+/* Enregistre (ou retire si data est vide) la photo d'un article déjà dans la carte : envoyée à la base
+   partagée, ou gardée dans ce navigateur en mode local. Renvoie false si elle n'a pas pu l'être. */
+async function applyPhoto(m, data) {
+  if (isShared()) {
+    try {
+      const r = await ClubApi.req('photo', { body: { itemId: m.id, nom: m.nom, data: data || '' } });
+      if (r.v) m.photo = r.v; else delete m.photo;
+      delete m.photoData;
+      return true;
+    } catch (e) { toast("La photo n'a pas pu être envoyée : " + e.message, 'error'); return false; }
+  }
+  const before = m.photoData;
+  if (data) m.photoData = data; else delete m.photoData;
+  if (!storageSet(STORAGE_KEY, JSON.stringify(DB))) {
+    if (before) m.photoData = before; else delete m.photoData;
+    toast('Plus de place dans ce navigateur pour cette photo (mode local) : retirez une autre photo ou choisissez une image plus légère.', 'error');
+    return false;
+  }
+  logActivity(data ? 'Photo de la carte ajoutée' : 'Photo de la carte retirée', m.nom); // en ligne, c'est le serveur qui le note
+  return true;
+}
+async function quickPhoto(id, input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file || !canEditCarte()) return;
+  const m = ownMenu().find((x) => x.id === id);
+  if (!m) return;
+  let data;
+  try { data = await readPhotoFile(file); } catch (e) { toast(e.message, 'error'); return; }
+  if (isShared()) toast('Envoi de la photo…');
+  if (!(await applyPhoto(m, data))) return;
+  toast(`Photo de « ${m.nom} » enregistrée.`, 'success');
+  refresh();
 }
 
 function openItemModal(id) {
@@ -109,14 +185,15 @@ function openItemModal(id) {
     </div>
     <div class="grid-2">
       <div class="field"><label for="miCat">Catégorie</label><select class="input" id="miCat" onchange="document.getElementById('miCompoWrap').hidden=this.value!=='Menus'">${MENU_CATEGORIES.map((c) => `<option ${m.categorie === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
-      <div class="field"><label for="miEmoji">Émoji (visuel)</label><input class="input" id="miEmoji" value="${esc(m.emoji || '')}" maxlength="4"></div>
+      <div class="field"><label for="miEmoji">Émoji (si pas de photo)</label><input class="input" id="miEmoji" value="${esc(m.emoji || '')}" maxlength="4"></div>
     </div>
     <div class="field"><label for="miFlag">Drapeau à côté du nom (facultatif)</label><input class="input flag-in" id="miFlag" value="${esc(m.drapeau || '')}" maxlength="20" placeholder="ex : 🇮🇹"></div>
+    ${photoField(m)}
     <div class="field"><label for="miDesc">${m.categorie === 'Menus' ? 'Phrase de présentation' : 'Description (facultatif)'}</label><textarea class="input" id="miDesc" style="min-height:80px">${esc(m.desc || '')}</textarea></div>
     <div class="field" id="miCompoWrap" ${m.categorie === 'Menus' ? '' : 'hidden'}><label for="miCompo">Composition du menu (une ligne par élément, « Libellé : valeur »)</label><textarea class="input" id="miCompo" style="min-height:100px" placeholder="Mocktails : 3 au choix">${esc(compoTxt)}</textarea></div>`,
-    `<button class="btn btn-sm btn-ghost" type="button" data-close-modal>Annuler</button><button class="btn btn-sm btn-sun" type="button" onclick="saveItem('${id || ''}')">Enregistrer</button>`);
+    `<button class="btn btn-sm btn-ghost" type="button" data-close-modal>Annuler</button><button class="btn btn-sm btn-sun" type="button" onclick="saveItem('${id || ''}',this)">Enregistrer</button>`);
 }
-function saveItem(id) {
+async function saveItem(id, btn) {
   const nom = document.getElementById('miNom').value.trim();
   if (!nom) { toast("Donnez un nom à l'article.", 'error'); return; }
   const categorie = document.getElementById('miCat').value;
@@ -133,12 +210,20 @@ function saveItem(id) {
     });
   }
   const menu = ownMenu();
+  let m;
   if (id) {
-    const m = menu.find((x) => x.id === id);
+    m = menu.find((x) => x.id === id);
     if (m) Object.assign(m, data);
     if (m && categorie !== 'Menus') delete m.compo;
   } else {
-    menu.push(Object.assign({ id: uid('m'), hue: hueFor(nom), dispo: true }, data));
+    m = Object.assign({ id: uid('m'), hue: hueFor(nom), dispo: true }, data);
+    menu.push(m);
+  }
+  const p = PHOTO_EDIT;
+  PHOTO_EDIT = null;
+  if (m && p && p.changed) {
+    busyBtn(btn, p.data ? 'Envoi de la photo…' : 'Enregistrement…');
+    await applyPhoto(m, p.data);
   }
   carteCat = categorie;
   logActivity(id ? 'Carte modifiée' : 'Article ajouté à la carte', `${nom} — ${fmtMoney(data.prix)}`);
@@ -160,8 +245,14 @@ function deleteItem(id) {
   }, 'Retirer');
 }
 function resetCarte() {
-  confirmAction("Remplacer la carte actuelle par la carte d'origine du Pacific Bluffs ?", () => {
-    DB.menu = JSON.parse(JSON.stringify(CLUB.MENU));
+  confirmAction("Remplacer la carte actuelle par la carte d'origine du Pacific Bluffs ? Les photos des articles d'origine sont gardées.", () => {
+    const photos = new Map(menuItems().filter((m) => m.photo || m.photoData).map((m) => [m.id, m]));
+    DB.menu = JSON.parse(JSON.stringify(CLUB.MENU)).map((m) => {
+      const p = photos.get(m.id);
+      if (p && p.photo) m.photo = p.photo;
+      if (p && p.photoData) m.photoData = p.photoData;
+      return m;
+    });
     logActivity('Carte réinitialisée', "Carte d'origine");
     toast("Carte d'origine rétablie.", 'success'); refresh();
   }, 'Rétablir');
