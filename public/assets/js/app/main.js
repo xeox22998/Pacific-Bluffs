@@ -152,9 +152,9 @@ function enterApp(animated) {
     const app = $id('app');
     app.hidden = false;
     app.classList.toggle('is-entering', !!animated);
-    let saved = null;
-    try { saved = sessionStorage.getItem('pacific:page'); } catch (e) { /* navigation privée */ }
-    CURRENT_PAGE = saved && PAGES[saved] ? saved : 'dashboard';
+    // tout le monde arrive sur le premier onglet, le tableau de bord (connexion comme actualisation)
+    CURRENT_PAGE = 'dashboard';
+    try { sessionStorage.removeItem('pacific:page'); } catch (e) { /* ancienne page mémorisée */ }
     upgradePostes();                                         // plus de danseuses : agent d'accueil / animateur
     autoClassicSoirees();                                    // les prochains mois sont toujours remplis
     upgradeCarte();                                          // nouvelle carte : remplace l'ancienne enregistrée
@@ -209,7 +209,6 @@ function goPage(key) {
   closeModal(true);
   hideSearch();
   CURRENT_PAGE = key;
-  try { sessionStorage.setItem('pacific:page', key); } catch (e) { /* navigation privée */ }
   document.querySelectorAll('[data-page]').forEach((b) => b.classList.toggle('is-active', b.dataset.page === key));
   placeRailIndicator();
   const tb = document.querySelector('.tabbar button.is-active');
@@ -289,7 +288,7 @@ function runSearch() {
   const evs = navAllowed('programme') ? DB.events.filter((e) => e.nom.toLowerCase().includes(q) || e.date.includes(q) || fmtDate(e.date).toLowerCase().includes(q))
     .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6) : [];
   const rdvs = navAllowed('privatisations') ? DB.rdv.filter((r) => (r.nom + ' ' + r.ref + ' ' + (r.typeEvent || '')).toLowerCase().includes(q)).slice(0, 4) : [];
-  const docs = (isMgmt() || canSeeFinance()) ? visibleDocs().filter((d) => d.nom.toLowerCase().includes(q)).slice(0, 6) : [];
+  const docs = navAllowed('documents') ? visibleDocs().filter((d) => d.nom.toLowerCase().includes(q)).slice(0, 6) : [];
   const weeks = navAllowed('comptabilite') ? DB.accountingWeeks.filter((w) => ('semaine ' + w.numero).includes(q) || ('s' + w.numero) === q).slice(0, 4) : [];
   const items = navAllowed('carte') ? menuItems().filter((m) => m.nom.toLowerCase().includes(q)).slice(0, 4) : [];
   let html = '';

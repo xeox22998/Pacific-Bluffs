@@ -214,7 +214,7 @@ function renderAdministration() {
       ['Noter ses ventes (carte, hospitalité, cartes VIP)', Y, Y, Y, N, Y], ['Voir ses ventes et son salaire (lundi 6h → lundi 6h)', Y, Y, Y, N, Y],
       ['Voir les ventes de tout le staff', N, Y, Y, 'Lecture', Y], ["Ouvrir l'onglet Comptabilité", N, Y, Y, 'Lecture', Y],
       ['Remplir les montants de la compta', N, Y, Y, N, Y], ['Consulter la comptabilité (tableau de bord)', N, N, Y, 'Lecture', Y],
-      ['Modifier la structure de la compta', N, N, Y, N, Y], ['Ajouter des documents', N, Y, Y, Y, Y],
+      ['Modifier la structure de la compta', N, N, Y, N, Y], ['Voir les documents', N, 'Lecture', N, Y, Y], ['Ajouter des documents', N, N, N, Y, Y],
       ['Créer, modifier et supprimer une soirée', N, N, Y, N, Y], ['Accepter ou refuser une privatisation', N, 'Lecture', Y, N, Y],
       ['Modifier la carte (affichée sur l\'accueil)', N, N, N, N, Y], ['Gérer et valider les comptes', N, N, N, N, Y],
       ['Voir les fiches de l\'équipe', 'La sienne', Y, Y, 'Lecture', Y], ['Modifier les fiches (nom, pièces jointes)', 'Ses pièces jointes', 'La sienne', 'Toutes', 'La sienne', 'Toutes'],

@@ -89,7 +89,7 @@ function renderComptabilite() {
   // Observations
   html += `<section class="section">${sectionHead('Observations', null, isDirection() ? `<button class="btn btn-xs" type="button" onclick="editObservations('${week.id}')">${icon('edit', 'sm')}Modifier</button>` : '')}
     <div class="card obs">${esc(week.observations) || '<span class="muted">Aucune observation.</span>'}
-      ${week.documentSource ? `<div class="obs-src">${icon('file', 'sm')}Document source : <b>${esc(week.documentSource)}</b><button class="btn btn-xs" type="button" onclick="goPage('documents')">Documents</button></div>` : ''}
+      ${week.documentSource ? `<div class="obs-src">${icon('file', 'sm')}Document source : <b>${esc(week.documentSource)}</b>${navAllowed('documents') ? `<button class="btn btn-xs" type="button" onclick="goPage('documents')">Documents</button>` : ''}</div>` : ''}
     </div></section>`;
   // Validation
   html += `<section class="section">${sectionHead('Validation')}<div class="card obs">

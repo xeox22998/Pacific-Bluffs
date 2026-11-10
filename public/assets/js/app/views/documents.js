@@ -13,10 +13,15 @@ const DOC_TYPES_OK = ['image/jpeg', 'image/png', 'application/pdf'];
 const DOC_EXT_MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf' };
 let DOC_FILE = null; // fichier choisi dans la fenêtre d'ajout : { data, type, nom, taille }
 
-function canAddDocs() { return isMgmt() || canSeeFinance(); }
+/* Accès (10/11/2026) : direction et gouvernement / fisc ajoutent et consultent ; managers consultent
+   seulement ; employés et comptabilité n'ont pas l'onglet (le serveur ne leur envoie aucun document). */
+function canAddDocs() { return isDirection() || CURRENT_USER.role === ROLES.GOUVERNEMENT; }
+/* Visibilité « Direction & Fisc » (anciennement « Direction & Comptabilité ») : cachée aux managers */
+const DOC_PRIVATE = 'Direction & Fisc';
+function isPrivateDoc(d) { return d.visibilite === DOC_PRIVATE || d.visibilite === 'Direction & Comptabilité'; }
 function visibleDocs() {
-  // « Direction & Comptabilité » : masqué aux employés et managers
-  return DB.documents.filter((d) => d.visibilite !== 'Direction & Comptabilité' || canSeeFinance() || isDirection());
+  if (!navAllowed('documents')) return [];
+  return DB.documents.filter((d) => !isPrivateDoc(d) || canAddDocs());
 }
 /* Taille maximale d'un fichier : 4 Mo en ligne (limite d'envoi des fonctions Netlify), 1,5 Mo en mode local (place du navigateur) */
 function docFileLimit() { return isShared() ? 4000000 : 1500000; }
@@ -33,6 +38,7 @@ function renderDocuments() {
   const docs = visibleDocs();
   const actions = canAddDocs() ? `<button class="btn btn-sun" type="button" onclick="openAddDocModal()" data-magnetic="0.2">${icon('plus', 'sm')}Ajouter un document</button>` : '';
   let html = pageHead('Documents', currentDocCategory ? esc(currentDocCategory.charAt(0) + currentDocCategory.slice(1).toLowerCase()) : 'Bibliothèque', 'Comptabilités, programmes, contrats et documents administratifs du Pacific Bluffs.', actions);
+  if (!canAddDocs()) html += `<div class="hint">${icon('eye', 'sm')}<span>Consultation seulement : la direction et le fisc ajoutent les documents.</span></div>`;
   if (!currentDocCategory) {
     html += `<div class="folders stagger">${DOC_CATEGORIES.map((c) => {
       const n = docs.filter((d) => d.categorie === c).length;
@@ -55,7 +61,7 @@ function renderDocList(docs) {
   return `<div class="card doc-list stagger">${docs.map((d) => `
     <div class="doc-row">
       <span class="doc-ic" aria-hidden="true">${(DOC_VISUALS[d.categorie] || DOC_VISUALS.AUTRES).emoji}</span>
-      <div class="doc-info"><b>${esc(d.nom)}</b><small>${d.fichier ? `<span class="doc-tag${isPdf(d.fichier) ? ' pdf' : ''}">${docKindLabel(d.fichier)}</span>` : ''}${esc(d.categorie)} · ${fmtDateShort(d.date)} · ${esc(d.auteur)}${d.semaineLiee ? ' · Semaine ' + esc(d.semaineLiee) : ''}${d.fichier ? ' · ' + fmtSize(d.fichier.taille) : ''}${d.visibilite === 'Direction & Comptabilité' ? ' · 🔒 Direction & Comptabilité' : ''}</small></div>
+      <div class="doc-info"><b>${esc(d.nom)}</b><small>${d.fichier ? `<span class="doc-tag${isPdf(d.fichier) ? ' pdf' : ''}">${docKindLabel(d.fichier)}</span>` : ''}${esc(d.categorie)} · ${fmtDateShort(d.date)} · ${esc(d.auteur)}${d.semaineLiee ? ' · Semaine ' + esc(d.semaineLiee) : ''}${d.fichier ? ' · ' + fmtSize(d.fichier.taille) : ''}${isPrivateDoc(d) ? ' · 🔒 ' + DOC_PRIVATE : ''}</small></div>
       <div class="doc-actions">
         ${d.lien ? `<a class="icon-btn sm" href="${esc(d.lien)}" target="_blank" rel="noopener noreferrer" aria-label="Ouvrir le lien">${icon('link', 'sm')}</a>` : ''}
         <button class="btn btn-xs" type="button" onclick="openDocViewer('${d.id}')">${icon(d.fichier ? 'file' : 'eye', 'sm')}${d.fichier ? 'Ouvrir' : 'Consulter'}</button>
@@ -87,7 +93,7 @@ function openDocViewer(docId) {
   const f = d.fichier;
   const desc = d.description ? `<div class="doc-preview">${esc(d.description)}</div>` : (f ? '' : '<div class="doc-preview"><span class="muted">Aucune description pour ce document.</span></div>');
   openModal(esc(d.nom), `
-    <p class="confirm-text muted" style="margin-bottom:14px">${esc(d.categorie)} · ajouté par ${esc(d.auteur)} le ${fmtDateShort(d.date)}${d.semaineLiee ? ' · Semaine ' + esc(d.semaineLiee) : ''} · visibilité : ${esc(d.visibilite || "Toute l'équipe")}</p>
+    <p class="confirm-text muted" style="margin-bottom:14px">${esc(d.categorie)} · ajouté par ${esc(d.auteur)} le ${fmtDateShort(d.date)}${d.semaineLiee ? ' · Semaine ' + esc(d.semaineLiee) : ''} · visibilité : ${isPrivateDoc(d) ? DOC_PRIVATE : 'Direction, fisc et managers'}</p>
     ${f ? `<div class="doc-file${isPdf(f) ? ' is-pdf' : ''}" id="docFileView"><span class="doc-file-load">${icon('file')}Chargement du fichier…</span></div>
       <p class="doc-file-name">${icon('file', 'sm')}<span>${esc(f.nom)}</span><small>${docKindLabel(f)} · ${fmtSize(f.taille)}</small></p>` : ''}
     ${desc}`,
@@ -224,7 +230,8 @@ function openAddDocModal() {
     ${docFileField()}
     <div class="field"><label for="dLien">Ou un lien vers le fichier (optionnel)</label><input class="input" id="dLien" type="url" placeholder="https://drive.google.com/…"></div>
     <div class="field"><label for="dDesc">Description / contenu</label><textarea class="input" id="dDesc"></textarea></div>
-    <div class="field"><label for="dVis">Visibilité</label><select class="input" id="dVis"><option>Toute l'équipe</option><option>Direction &amp; Comptabilité</option></select></div>`,
+    <div class="field"><label for="dVis">Visibilité</label><select class="input" id="dVis"><option value="Toute l'équipe">Direction, fisc et managers</option><option value="${DOC_PRIVATE}">${esc(DOC_PRIVATE)} (caché aux managers)</option></select>
+      <p class="field-hint">Les employés et la comptabilité n'ont pas accès aux documents.</p></div>`,
     `<button class="btn btn-sm btn-ghost" type="button" data-close-modal>Annuler</button><button class="btn btn-sm btn-sun" type="button" onclick="saveDoc(this)">Ajouter</button>`);
 }
 async function saveDoc(btn) {

@@ -61,9 +61,15 @@ async function dropPhotos(store, before, after) {
 const DOC_MAX = 5400000;
 const DOC_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
 const DOC_DATA = /^data:(image\/jpeg|image\/png|application\/pdf);base64,([A-Za-z0-9+/=]+)$/;
-const DOC_WRITERS = ['DIRECTION', 'SECRETAIRE', 'MANAGER', 'GOUVERNEMENT']; // comme l'ajout d'un document
-const DOC_PRIVATE = 'Direction & Comptabilité';
-const DOC_PRIVATE_READERS = ['DIRECTION', 'SECRETAIRE', 'GOUVERNEMENT'];
+/* Onglet Documents : direction et gouvernement / fisc ajoutent et consultent, managers consultent seulement
+   (sauf « Direction & Fisc »), employés et comptabilité n'y ont pas accès. */
+const DOC_WRITERS = ['DIRECTION', 'GOUVERNEMENT'];
+const DOC_READERS = ['DIRECTION', 'GOUVERNEMENT', 'MANAGER'];
+const isPrivateDoc = (d) => !!d && (d.visibilite === 'Direction & Fisc' || d.visibilite === 'Direction & Comptabilité'); // ancien nom gardé
+function docsFor(role, docs) {
+  if (DOC_WRITERS.includes(role)) return docs;
+  return role === 'MANAGER' ? docs.filter((d) => !isPrivateDoc(d)) : [];
+}
 /* Un document enregistré ne garde que la fiche du fichier (version, type, nom, taille), jamais le fichier lui-même */
 function cleanDoc(r) {
   if (!r || typeof r !== 'object') return r;
@@ -371,7 +377,6 @@ function weekForEmploye(w, u) {
 async function routeData(store, a) {
   const all = await loadAll(store);
   const role = a.user.role;
-  const finance = ['SECRETAIRE', 'DIRECTION', 'GOUVERNEMENT'].includes(role);
   const employe = role === 'EMPLOYE';
   const db = {
     users: all.users.filter((u) => role === 'DIRECTION' || u.statut !== 'En attente').map(publicUser),
@@ -379,7 +384,7 @@ async function routeData(store, a) {
     events: all.events,
     attendances: all.attendances,
     accountingWeeks: employe ? all.accountingWeeks.map((w) => weekForEmploye(w, a.user)) : all.accountingWeeks,
-    documents: finance ? all.documents : all.documents.filter((d) => d.visibilite !== 'Direction & Comptabilité'),
+    documents: docsFor(role, all.documents),
     activityLogs: all.activityLogs,
     rdv: ['DIRECTION', 'SECRETAIRE', 'MANAGER'].includes(role) ? all.rdv : [],
     barSales: employe ? all.barSales.filter((s) => s && s.userId === a.user.id) : all.barSales, // l'employé : ses ventes seulement
@@ -403,7 +408,7 @@ async function routeSync(req, store, a) {
     // comptabilité : pas d'accès pour les employés (ils n'en reçoivent qu'un résumé)
     // pointages : l'employé ne retire que les siens non validés (imprévu), filtré plus bas
     users: [true, D], events: [!G, D || S], attendances: [!G, !G], accountingWeeks: [D || S || M, D || S],
-    documents: [D || S || M || G, D], activityLogs: [true, false], rdv: [D || S, D], barSales: [!G, !G],
+    documents: [D || G, D], activityLogs: [true, false], // documents : ajout direction et fisc, suppression direction rdv: [D || S, D], barSales: [!G, !G],
     joursSansSoiree: [D || S, D || S], // comme la suppression des soirées
   };
   const wholePerms = { postes: D, menu: D, couleurs: D || S, cartes: D, cocons: D };
@@ -601,7 +606,6 @@ async function routeDocFileSet(req, store, a) {
   if (m[2].length > DOC_MAX) return fail(413, 'Fichier trop lourd : 4 Mo maximum.');
   const docs = await col(store, 'documents');
   const doc = docs.find((d) => d && d.id === id);
-  if (doc && doc.visibilite === DOC_PRIVATE && !DOC_PRIVATE_READERS.includes(a.user.role)) return fail(403, 'Document réservé à la direction et à la comptabilité.');
   const v = Date.now().toString(36);
   const taille = Math.floor((m[2].length * 3) / 4) - (m[2].endsWith('==') ? 2 : m[2].endsWith('=') ? 1 : 0);
   const fichier = { v, type: m[1], nom: clean(b.nom, 120) || 'fichier', taille };
@@ -614,12 +618,13 @@ async function routeDocFileSet(req, store, a) {
   } else await notePendingDocFile(store, id, docs);
   return json({ ok: true, fichier, version });
 }
-/* Lecture d'un fichier : réservée au staff connecté, avec la même visibilité que le document */
+/* Lecture d'un fichier : direction, fisc et managers, avec la même visibilité que le document */
 async function routeDocFileGet(store, a, id) {
+  if (!DOC_READERS.includes(a.user.role)) return fail(403, 'Les documents sont réservés à la direction, au fisc et aux managers.');
   const docs = await col(store, 'documents');
   const doc = docs.find((d) => d && d.id === id);
   if (!doc || !doc.fichier) return fail(404, 'Fichier introuvable.');
-  if (doc.visibilite === DOC_PRIVATE && !DOC_PRIVATE_READERS.includes(a.user.role)) return fail(403, 'Document réservé à la direction et à la comptabilité.');
+  if (!docsFor(a.user.role, [doc]).length) return fail(403, 'Document réservé à la direction et au fisc.');
   const f = await readJSON(store, 'docfile:' + id, null);
   if (!f || !f.data) return fail(404, 'Fichier introuvable.');
   return json({ mime: f.type, data: f.data, nom: f.nom || doc.fichier.nom, v: f.v });

@@ -10,10 +10,10 @@ const ROLES = { EMPLOYE: 'EMPLOYE', MANAGER: 'MANAGER', SECRETAIRE: 'SECRETAIRE'
 const ROLE_LABEL = { EMPLOYE: 'Employé', MANAGER: 'Manager', SECRETAIRE: 'Comptabilité', DIRECTION: 'Direction', GOUVERNEMENT: 'Gouvernement / Fisc' };
 const ROLE_DESC = {
   EMPLOYE: 'Voir mon planning, déclarer mes présences, noter mes ventes.',
-  MANAGER: "Gérer les présences et le planning de l'équipe.",
-  SECRETAIRE: 'Gérer la comptabilité et les documents administratifs.',
+  MANAGER: "Gérer les présences et le planning de l'équipe, consulter les documents.",
+  SECRETAIRE: 'Gérer la comptabilité, le planning des soirées et les privatisations.',
   DIRECTION: 'Accès complet à la gestion du Pacific Bluffs.',
-  GOUVERNEMENT: 'Consultation de la comptabilité à titre de contrôle fiscal.',
+  GOUVERNEMENT: 'Contrôle fiscal : consulter la comptabilité, ajouter et consulter les documents.',
 };
 const ROLE_ORDER = [ROLES.EMPLOYE, ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.GOUVERNEMENT, ROLES.DIRECTION];
 /* Sous-rôles (spécialité dans l'équipe) : attribués par la direction seulement.
@@ -27,17 +27,20 @@ function subRoleOf(u) { return u && subRolesOf(u.role).includes(u.sousRole) ? u.
 /* Rôle affiché : « Manager · Bar », « Employé · Barman / Barmaid »… */
 function roleLabel(u) { const s = subRoleOf(u); return (ROLE_LABEL[u.role] || '') + (s ? ' · ' + s : ''); }
 
+/* Ordre des onglets (demandé le 10/11/2026) : tableau de bord, mon planning, programme (+ présences),
+   ventes, privatisations, comptabilité, la carte, équipe, documents, administration */
 const NAV_ITEMS = [
   { key: 'dashboard',      label: 'Tableau de bord', icon: 'grid',        roles: '*' },
   { key: 'planning',       label: 'Mon planning',    icon: 'calendar',    roles: [ROLES.EMPLOYE, ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
-  { key: 'ventes',         label: 'Ventes',          icon: 'receipt',     roles: '*' },
-  { key: 'presences',      label: 'Présences',       icon: 'checkCircle', roles: [ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
   { key: 'programme',      label: 'Programme',       icon: 'mic',         roles: [ROLES.EMPLOYE, ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
+  { key: 'presences',      label: 'Présences',       icon: 'checkCircle', roles: [ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
+  { key: 'ventes',         label: 'Ventes',          icon: 'receipt',     roles: '*' },
   { key: 'privatisations', label: 'Privatisations',  icon: 'party',       roles: [ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
   { key: 'comptabilite',   label: 'Comptabilité',    icon: 'wallet',      roles: [ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION, ROLES.GOUVERNEMENT] },
   { key: 'carte',          label: 'La carte',        icon: 'glass',       roles: [ROLES.EMPLOYE, ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
-  { key: 'documents',      label: 'Documents',       icon: 'folder',      roles: '*' },
   { key: 'equipe',         label: 'Équipe',          icon: 'users',       roles: [ROLES.EMPLOYE, ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION, ROLES.GOUVERNEMENT] },
+  // documents : manager en lecture seule, fisc et direction ajoutent et consultent (personne d'autre)
+  { key: 'documents',      label: 'Documents',       icon: 'folder',      roles: [ROLES.MANAGER, ROLES.GOUVERNEMENT, ROLES.DIRECTION] },
   { key: 'administration', label: 'Administration',  icon: 'settings',    roles: [ROLES.DIRECTION] },
 ];
 

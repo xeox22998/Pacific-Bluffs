@@ -123,7 +123,7 @@ function renderDashboard() {
         ${canHandleRdv() ? q('party', 'Privatisations', "goPage('privatisations')") : ''}
         ${q('wallet', 'Comptabilité', "goPage('comptabilite')")}
         ${isDirection() ? q('glass', 'Modifier la carte', "goPage('carte')") : ''}
-        ${q('folder', 'Ajouter un document', "goPage('documents')")}
+        ${canAddDocs() ? q('folder', 'Ajouter un document', "goPage('documents')") : ''}
         ${isDirection() ? q('users', "Gérer l'équipe", "goPage('equipe')") : ''}
         ${isMgmt() ? q('checkCircle', 'Voir les présences', "goPage('presences')") : ''}
       </div>`;
