@@ -31,6 +31,12 @@ const SUB_ROLES = {
   EMPLOYE: ['Agent de sécurité', 'Barman / Barmaid', "Animateur / Agent d'accueil", 'Agent polyvalent'],
 };
 const validSubRole = (role, v) => ((SUB_ROLES[role] || []).includes(v) ? v : '');
+// Grades des employés, attribués par la direction seulement (même liste que GRADES dans public/assets/js/app/data.js) :
+// taux de commission sur les ventes. BASE_RATE : autres rôles et employé sans grade (= COMMISSION_VENTES de club-data.js).
+const GRADES = { 'Recrue': 0.25, 'Non qualifié': 0.25, 'Qualifié': 0.35 };
+const BASE_RATE = 0.25;
+const validGrade = (role, v) => (role === 'EMPLOYE' && typeof v === 'string' && Object.hasOwn(GRADES, v) ? v : '');
+const rateOf = (u) => { const g = u && validGrade(u.role, u.grade); return g ? GRADES[g] : BASE_RATE; };
 // joursSansSoiree : jours dont la soirée a été retirée à la main (le planning n'y remet pas de soirée classique)
 const COLS = ['users', 'events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -408,7 +414,8 @@ async function routeSync(req, store, a) {
     // comptabilité : pas d'accès pour les employés (ils n'en reçoivent qu'un résumé)
     // pointages : l'employé ne retire que les siens non validés (imprévu), filtré plus bas
     users: [true, D], events: [!G, D || S], attendances: [!G, !G], accountingWeeks: [D || S || M, D || S],
-    documents: [D || G, D], activityLogs: [true, false], // documents : ajout direction et fisc, suppression direction rdv: [D || S, D], barSales: [!G, !G],
+    documents: [D || G, D], // documents : ajout direction et fisc, suppression direction
+    activityLogs: [true, false], rdv: [D || S, D], barSales: [!G, !G],
     joursSansSoiree: [D || S, D || S], // comme la suppression des soirées
   };
   const wholePerms = { postes: D, menu: D, couleurs: D || S, cartes: D, cocons: D };
@@ -437,9 +444,17 @@ async function routeSync(req, store, a) {
           ups = ups.filter((r) => r && r.userId === a.user.id && own(r.id) && isOpen(r) && curOpen(r.id));
           rms = rms.filter((id) => index.has(id) && own(id) && curOpen(id));
         }
-        const [menu, cartes, cocons] = ups.length
-          ? await Promise.all(['menu', 'cartes', 'cocons'].map((n) => readJSON(store, 'col:' + n, null))) : [null, null, null];
-        ups = ups.map((r) => (r && typeof r === 'object' ? normalizeSale(r, { menu, cartes, cocons }) : null)).filter(Boolean);
+        const [menu, cartes, cocons, users] = ups.length
+          ? await Promise.all(['menu', 'cartes', 'cocons', 'users'].map((n) => readJSON(store, 'col:' + n, null))) : [null, null, null, null];
+        ups = ups.map((r) => {
+          const out = r && typeof r === 'object' ? normalizeSale(r, { menu, cartes, cocons }) : null;
+          if (!out) return null;
+          // commission : taux du grade du vendeur au moment de la vente (une vente déjà notée garde le sien)
+          const i = index.get(r.id);
+          const taux = i !== undefined && list[i] ? list[i].taux : rateOf((users || []).find((u) => u && u.id === out.userId));
+          if (typeof taux === 'number') out.taux = taux; else delete out.taux;
+          return out;
+        }).filter(Boolean);
         if (ups.length + rms.length < asked) denied.push(name); // l'espace staff recharge alors les vraies données
       }
       if (name === 'attendances' && !(D || M || S) && rms.length) {
@@ -458,13 +473,15 @@ async function routeSync(req, store, a) {
           // Nom et prénom : direction et comptabilité pour tous, manager et gouvernement pour leur propre fiche, employé jamais
           if (!(D || S || ((M || G) && self))) continue;
           list[i] = { ...cur, prenom: clean(rec.prenom, 40) || cur.prenom, nom: clean(rec.nom, 40) || '/' };
-          if (D) { // rôle, sous-rôle et statut : direction seulement
+          if (D) { // rôle, sous-rôle, grade et statut : direction seulement
             list[i].role = ROLES.includes(rec.role) ? rec.role : cur.role;
             list[i].statut = ['Actif', 'Désactivé', 'En attente'].includes(rec.statut) ? rec.statut : cur.statut;
           }
           if (self) { list[i].role = cur.role; list[i].statut = 'Actif'; } // pas d'auto-rétrogradation
           // sous-rôle : choisi par la direction, effacé s'il ne correspond pas au rôle
           list[i].sousRole = validSubRole(list[i].role, D && rec.sousRole !== undefined ? rec.sousRole : cur.sousRole);
+          // grade (employés seulement, fixe la commission) : choisi par la direction, effacé pour les autres rôles
+          list[i].grade = validGrade(list[i].role, D && rec.grade !== undefined ? rec.grade : cur.grade);
           continue;
         }
         if (name === 'activityLogs') { if (i === undefined) { list.push(rec); index.set(rec.id, list.length - 1); } continue; }
@@ -668,7 +685,7 @@ async function routeCreateUser(req, store, a) {
   const role = ROLES.includes(b.role) ? b.role : 'EMPLOYE';
   const user = {
     id: 'u_' + randomHex(6), username: v.username, prenom: v.prenom, nom: v.nom,
-    role, sousRole: validSubRole(role, b.sousRole), poste: clean(b.poste, 60) || 'Non renseigné', statut: 'Actif', dateCreation: todayParis(),
+    role, sousRole: validSubRole(role, b.sousRole), grade: validGrade(role, b.grade), poste: clean(b.poste, 60) || 'Non renseigné', statut: 'Actif', dateCreation: todayParis(),
   };
   await setPassword(user, v.password);
   a.users.push(user);

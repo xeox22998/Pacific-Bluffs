@@ -26,6 +26,19 @@ function subRolesOf(role) { return SUB_ROLES[role] || []; }
 function subRoleOf(u) { return u && subRolesOf(u.role).includes(u.sousRole) ? u.sousRole : ''; }
 /* Rôle affiché : « Manager · Bar », « Employé · Barman / Barmaid »… */
 function roleLabel(u) { const s = subRoleOf(u); return (ROLE_LABEL[u.role] || '') + (s ? ' · ' + s : ''); }
+/* Grades des employés (à côté du sous-rôle, attribués par la direction seulement) : ils fixent la
+   commission sur les ventes. Les autres rôles (et un employé sans grade) touchent COMMISSION_RATE.
+   Même liste dans netlify/functions/api.mjs (GRADES), revérifiée par le serveur. */
+const GRADES = [
+  { id: 'Recrue', taux: 0.25 },
+  { id: 'Non qualifié', taux: 0.25 },
+  { id: 'Qualifié', taux: 0.35 },
+];
+const DEFAULT_GRADE = 'Recrue'; // proposé à la création et à la validation d'un compte employé
+function hasGrades(role) { return role === ROLES.EMPLOYE; }
+function gradeOf(u) { return u && hasGrades(u.role) && GRADES.some((g) => g.id === u.grade) ? u.grade : ''; }
+/* Rôle complet : « Employé · Barman / Barmaid · Qualifié » */
+function roleLabelFull(u) { const g = gradeOf(u); return roleLabel(u) + (g ? ' · ' + g : ''); }
 
 /* Ordre des onglets (demandé le 10/11/2026) : tableau de bord, mon planning, programme (+ présences),
    ventes, privatisations, comptabilité, la carte, équipe, documents, administration */
@@ -154,8 +167,11 @@ function defaultExpenseRows() { return EXPENSE_CATS.map((c) => ({ categorie: c, 
    Journée de service : de 6h à 6h le lendemain, heure de Paris (comme le serveur). À 6h la
    journée se ferme : ses ventes passent toutes seules dans la comptabilité (cases « Bar &
    boissons », « Entrées soirées », « Hébergements », « Cartes membres ») et dans le dossier salaires.
-   Chaque vendeur touche COMMISSION_RATE (25 %) de chaque vente : c'est son salaire de la semaine,
-   du lundi 6h au lundi 6h suivant (= les journées de service du lundi au dimanche).
+   Chaque vendeur touche une part de chaque vente : c'est son salaire de la semaine, du lundi 6h au
+   lundi 6h suivant (= les journées de service du lundi au dimanche). Part = le taux de son grade
+   (GRADES : 35 % employé qualifié, 25 % non qualifié et recrue), COMMISSION_RATE (25 %) sinon.
+   Le taux est gardé sur la vente (champ taux, fixé par le serveur) : un changement de grade compte
+   pour les ventes notées ensuite ; les anciennes ventes sans taux restent à COMMISSION_RATE.
    ===================================================================== */
 const SALE_TYPES = [
   { id: 'carte', label: 'Carte', long: 'Fiche des ventes de la carte', emoji: '🍹', compta: 'Bar & boissons' },
@@ -188,7 +204,29 @@ function saleType(s) { return (s && s.type) || 'carte'; }
 function saleDayKey(s) { return s.date ? dayKeyOf(s.date) : s.day; }
 function saleTotal(s) { return (Number(s.prix) || 0) * (Number(s.qty) || 0); }
 function sumSales(list) { return list.reduce((t, s) => t + saleTotal(s), 0); }
-function commissionOf(amount) { return Math.round(amount * COMMISSION_RATE * 100) / 100; }
+/* Commissions : taux du grade du vendeur, gardé sur chaque vente */
+const round2 = (n) => Math.round(n * 100) / 100;
+function pctOf(rate) { return Math.round(rate * 100) + ' %'; }
+function gradeRate(u) { const g = GRADES.find((x) => x.id === gradeOf(u)); return g ? g.taux : COMMISSION_RATE; }
+function userRate(userId) { return gradeRate((DB && DB.users || []).find((u) => u.id === userId)); }
+function saleRate(s) { const t = Number(s && s.taux); return t > 0 && t < 1 ? t : COMMISSION_RATE; }
+function saleCommission(s) { return round2(saleTotal(s) * saleRate(s)); }
+function commissionOfSales(list) { return round2(list.reduce((t, s) => t + saleTotal(s) * saleRate(s), 0)); }
+/* Taux d'une liste de ventes : « 35 % », « 25 à 35 % » (taux mélangés), ou le taux par défaut si elle est vide */
+function ratesText(list, fallback) {
+  const r = [...new Set(list.map(saleRate))].sort((a, b) => a - b);
+  if (!r.length) return pctOf(fallback === undefined ? COMMISSION_RATE : fallback);
+  return r.length === 1 ? pctOf(r[0]) : `${Math.round(r[0] * 100)} à ${pctOf(r[r.length - 1])}`;
+}
+/* Taux des grades : « recrue et non qualifié 25 %, qualifié 35 % » */
+function gradeRule() {
+  const by = new Map();
+  GRADES.forEach((g) => by.set(g.taux, [...(by.get(g.taux) || []), g.id.toLowerCase()]));
+  return [...by].map(([t, ids]) => `${ids.join(' et ')} ${pctOf(t)}`).join(', ');
+}
+/* Règle affichée : « 25 % de ses ventes (35 % pour un employé qualifié) » */
+function upperGradesText() { return GRADES.filter((g) => g.taux !== COMMISSION_RATE).map((g) => `${pctOf(g.taux)} pour un employé ${g.id.toLowerCase()}`).join(', '); }
+function commissionRule() { const up = upperGradesText(); return `${pctOf(COMMISSION_RATE)} de ses ventes${up ? ` (${up})` : ''}`; }
 /* Une journée est transférée en comptabilité dès 6h le lendemain (les anciennes ventes sans date le sont) */
 function isDayTransferred(date) { return !date || date < serviceDay(); }
 function isSaleTransferred(s) { return isDayTransferred(s.date); }
@@ -241,12 +279,14 @@ function revenueRowTotal(r, week) { return DAY_KEYS.reduce((a, d) => a + revCell
 function salesBySeller(list) {
   const map = new Map();
   list.forEach((s) => {
-    const x = map.get(s.userId) || { userId: s.userId, carte: 0, hospitalite: 0, carteVip: 0, total: 0, count: 0 };
+    const x = map.get(s.userId) || { userId: s.userId, carte: 0, hospitalite: 0, carteVip: 0, total: 0, count: 0, raw: 0, list: [] };
     const t = saleTotal(s);
     x[saleType(s)] = (x[saleType(s)] || 0) + t; x.total += t; x.count += 1;
+    x.raw += t * saleRate(s); x.list.push(s);
     map.set(s.userId, x);
   });
-  return [...map.values()].map((x) => ({ ...x, commission: commissionOf(x.total) })).sort((a, b) => b.total - a.total);
+  // commission : part de chaque vente au taux du vendeur ; taux : « 35 % » (ou « 25 à 35 % » après un changement de grade)
+  return [...map.values()].map(({ raw, list, ...x }) => ({ ...x, commission: round2(raw), taux: ratesText(list) })).sort((a, b) => b.total - a.total);
 }
 function weekCommissionRows(week) { return salesBySeller(comptaSales(week)); }
 function weekCommissionTotal(week) { return weekCommissionRows(week).reduce((t, x) => t + x.commission, 0); }

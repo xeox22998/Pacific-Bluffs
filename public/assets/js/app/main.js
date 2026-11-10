@@ -306,7 +306,7 @@ function runSearch() {
 function openProfile() {
   const u = CURRENT_USER;
   openModal('Mon profil', `
-    <div class="sheet-h">${avatarHtml(u, 'lg')}<div><div class="confirm-text"><b>${esc(fullName(u))}</b></div><div class="muted" style="font-size:13.5px">${esc(roleLabel(u))} · identifiant <b>${esc(u.username)}</b></div></div></div>
+    <div class="sheet-h">${avatarHtml(u, 'lg')}<div><div class="confirm-text"><b>${esc(fullName(u))}</b></div><div class="muted" style="font-size:13.5px">${esc(roleLabelFull(u))} · identifiant <b>${esc(u.username)}</b></div></div></div>
     <button class="btn btn-sm" type="button" style="margin-top:12px" onclick="openEmployeeSheet('${u.id}')">${icon('file', 'sm')}Ma fiche et mes pièces jointes</button>
     <div class="sub-h">Changer mon mot de passe</div>
     <div class="field"><label for="pfOld">Mot de passe actuel</label><input class="input" id="pfOld" type="password" autocomplete="current-password"></div>

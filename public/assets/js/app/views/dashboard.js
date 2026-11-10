@@ -57,7 +57,7 @@ function logRows(list) {
 function renderDashboard() {
   const u = CURRENT_USER;
   const today = todayISO();
-  let html = pageHead(fmtDate(today), `${greeting()}, ${esc(u.prenom)}`, `Connecté en tant que <b>${esc(roleLabel(u))}</b>. Voici l'essentiel du Pacific Bluffs.`);
+  let html = pageHead(fmtDate(today), `${greeting()}, ${esc(u.prenom)}`, `Connecté en tant que <b>${esc(roleLabelFull(u))}</b>. Voici l'essentiel du Pacific Bluffs.`);
 
   const pending = isDirection() ? DB.users.filter((x) => x.statut === 'En attente').length : 0;
   if (pending) html += `<button class="hint hint-btn" type="button" onclick="adminTab='utilisateurs';goPage('administration')">${icon('userCheck', 'sm')}<span><b>${pending} compte${pending > 1 ? 's' : ''} en attente de validation.</b> Cliquez pour les valider dans Administration.</span>${icon('arrow', 'sm')}</button>`;
@@ -65,7 +65,7 @@ function renderDashboard() {
   if (canFillFinance()) {
     const mine = allSales().filter((s) => s.date === serviceDay() && s.userId === u.id);
     const t = sumSales(mine);
-    html += `<button class="hint hint-btn" type="button" onclick="openVentesDay(serviceDay(),null)">${icon('receipt', 'sm')}<span><b>${mine.length ? `Ce soir : ${fmtMoney(t)} de ventes, votre part ${COMMISSION_PCT} % : ${fmtMoney(commissionOf(t))}.` : 'Noter une vente'}</b> ${mine.length ? 'Cliquez pour ouvrir vos fiches de ventes.' : `Carte, hospitalité (entrées, hébergements) ou carte VIP : notez chaque vente dans l'onglet Ventes, vous touchez ${COMMISSION_PCT} %.`}</span>${icon('arrow', 'sm')}</button>`;
+    html += `<button class="hint hint-btn" type="button" onclick="openVentesDay(serviceDay(),null)">${icon('receipt', 'sm')}<span><b>${mine.length ? `Ce soir : ${fmtMoney(t)} de ventes, votre part ${ratesText(mine)} : ${fmtMoney(commissionOfSales(mine))}.` : 'Noter une vente'}</b> ${mine.length ? 'Cliquez pour ouvrir vos fiches de ventes.' : `Carte, hospitalité (entrées, cocons) ou carte VIP : notez chaque vente dans l'onglet Ventes, vous touchez ${pctOf(gradeRate(u))}.`}</span>${icon('arrow', 'sm')}</button>`;
   }
 
   if (isMgmt() || canSeeFinance()) {
@@ -135,12 +135,13 @@ function renderDashboard() {
     // Mes ventes et mon salaire de la semaine (du lundi 6h au lundi 6h)
     const mon = mondayOf(serviceDay());
     const myWeek = allSales().filter((s) => s.userId === u.id && s.date >= mon && s.date <= shiftISO(mon, 6));
-    const myDone = sumSales(myWeek.filter(isSaleTransferred)), myPend = sumSales(myWeek.filter((s) => !isSaleTransferred(s)));
+    const doneList = myWeek.filter(isSaleTransferred), pendList = myWeek.filter((s) => !isSaleTransferred(s));
+    const myDone = sumSales(doneList), myPend = sumSales(pendList);
     html += `<div class="grid-2c">
       <section>${sectionHead('Mon prochain service')}${next ? renderServiceCard(next.event, next.assignment, u.id) : emptyState('📭', 'Aucun service prévu', 'Prenez un poste depuis le Programme pour apparaître ici.')}</section>
       <section>${sectionHead('Mes chiffres')}<div class="stats-row stagger" style="grid-template-columns:1fr 1fr">
         ${statTile('Mes ventes de la semaine', 'receipt', myDone + myPend, { money: true, foot: salaryWeekLabel(mon) })}
-        ${statTile('Mon salaire de la semaine', 'wallet', commissionOf(myDone), { money: true, cls: 'dark', foot: myPend ? `+ ${fmtMoney(commissionOf(myPend))} à 6h` : `${COMMISSION_PCT} % de mes ventes` })}
+        ${statTile('Mon salaire de la semaine', 'wallet', commissionOfSales(doneList), { money: true, cls: 'dark', foot: myPend ? `+ ${fmtMoney(commissionOfSales(pendList))} à 6h` : `${pctOf(gradeRate(u))} de mes ventes${gradeOf(u) ? ` (${esc(gradeOf(u).toLowerCase())})` : ''}` })}
         ${statTile('Services', 'calendar', myAtt.length)}
         ${statTile('Heures effectuées', 'clock', hoursDec(totalMin), { suffix: ' h' })}
         ${statTile('Présences validées', 'checkCircle', myAtt.filter((a) => a.statut === 'Validé').length)}
