@@ -416,6 +416,10 @@ input[type=checkbox].tick{width:20px;height:20px;accent-color:var(--sun);cursor:
 .svc-actions{display:flex;flex-direction:column;gap:8px;margin-top:6px}
 .svc-note{font-size:13px;color:var(--muted);line-height:1.45}
 .svc-note.ok{color:var(--good)}
+/* Retirer sa présence (imprévu) / celle d'un membre */
+.svc-out{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding-top:8px;border-top:1px dashed var(--line);font-size:12.5px;color:var(--muted)}
+.svc-out .btn:hover{color:var(--bad)}
+.assign-cell,.att-acts{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 
 /* Carte de soirée (programme) */
 .evc{padding:8px;cursor:pointer;display:flex;flex-direction:column}
@@ -610,6 +614,26 @@ button.ev-row:hover{background:var(--surface-2);transform:translateX(4px)}
 .doc-info small{font-size:12.5px;color:var(--muted)}
 .doc-actions{display:flex;gap:6px;flex-shrink:0}
 .doc-preview{padding:20px;border-radius:20px;background:var(--canvas);min-height:180px;white-space:pre-wrap;line-height:1.55;font-size:14.5px}
+.doc-file+.doc-file-name+.doc-preview{min-height:0;margin-top:12px}
+/* Fichier importé (JPEG, PNG, PDF) : étiquette, choix dans la fenêtre d'ajout, aperçu à l'ouverture */
+.doc-tag{display:inline-block;margin-right:6px;padding:1px 7px;border-radius:var(--r-pill);background:var(--sun-soft);color:var(--ink);font-size:10.5px;font-weight:700;letter-spacing:.06em;vertical-align:1px}
+.doc-tag.pdf{background:var(--bad-bg);color:var(--bad)}
+.docfile-pick{display:flex;gap:14px;align-items:flex-start;padding:10px;border-radius:18px;border:1px dashed transparent;transition:border-color .2s,background-color .2s}
+.docfile-pick.is-over{border-color:var(--sun);background:var(--sun-soft)}
+.docfile-prev{width:120px;aspect-ratio:4/3;flex-shrink:0;border-radius:14px;overflow:hidden;background:var(--surface-2);border:1px dashed var(--line-strong);display:grid;place-items:center}
+.docfile-prev img{width:100%;height:100%;object-fit:cover;display:block}
+.docfile-prev>span{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;color:var(--muted);text-align:center;padding:8px}
+.docfile-pdf b{display:grid;place-items:center;width:52px;height:62px;border-radius:8px 18px 8px 8px;background:var(--bad);color:#fff;font-size:13px;letter-spacing:.06em}
+.doc-file{display:grid;place-items:center;min-height:220px;border-radius:20px;overflow:hidden;background:var(--canvas)}
+.doc-file img{display:block;max-width:100%;max-height:62vh;object-fit:contain}
+.doc-file.is-pdf iframe{width:100%;height:66vh;border:0;background:#fff}
+.doc-file-load{display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px;font-size:13px;color:var(--muted);text-align:center}
+.doc-file-load.bad{color:var(--bad)}
+.doc-file-name{display:flex;align-items:center;gap:8px;min-width:0;margin-top:10px;font-size:13px}
+.doc-file-name span{min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc-file-name small{flex-shrink:0;color:var(--muted)}
+.doc-file-acts{display:contents}
+@media (max-width:560px){.docfile-pick{flex-direction:column}.docfile-prev{width:100%;max-width:220px}}
 
 /* Équipe */
 .emp{padding:24px 16px 20px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;cursor:pointer}

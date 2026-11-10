@@ -164,6 +164,10 @@ function renderServiceCard(ev, assignment, userId) {
   } else {
     actions = `<p class="svc-note ok">${fmtDuration(att.heureArrivee, att.heureDepart)} validées par ${esc(userLabel(att.valideParId))}.</p>`;
   }
+  // imprévu : on retire sa présence (le poste redevient libre), tant qu'elle n'est pas validée
+  if (mineCard && att.statut !== 'Validé' && canRemovePresence(ev, userId)) {
+    actions += `<div class="svc-out"><span>Un imprévu ?</span><button class="btn btn-xs btn-ghost" type="button" onclick="removePresence('${ev.id}','${userId}')">${icon('x', 'sm')}Retirer ma présence</button></div>`;
+  }
   return `<article class="svc card lift">
     <div class="svc-top"><span class="svc-date">${fmtDate(ev.date)}</span>${statusBadge(att.statut)}</div>
     <h3>${esc(ev.nom)}</h3>
@@ -373,7 +377,7 @@ function renderPresences() {
 
   if (!rows.length) return html + emptyState('✅', 'Aucune présence à afficher', 'Aucun employé attribué ne correspond à ces filtres.');
   html += `<div class="card table-card"><div class="table-scroll"><table class="tbl"><thead><tr>
-    <th>Date</th><th>Soirée</th><th>Employé</th><th>Poste</th><th>Arr. prévue</th><th>Arr. réelle</th><th>Dép. prévu</th><th>Dép. réel</th><th>Durée</th><th>Statut</th><th>Validation</th>
+    <th>Date</th><th>Soirée</th><th>Employé</th><th>Poste</th><th>Arr. prévue</th><th>Arr. réelle</th><th>Dép. prévu</th><th>Dép. réel</th><th>Durée</th><th>Statut</th><th>Validation / actions</th>
   </tr></thead><tbody>`;
   rows.forEach((r) => {
     const canValidate = isMgmt() && r.att.statut === 'À valider';
@@ -381,6 +385,10 @@ function renderPresences() {
     if (r.att.statut === 'Validé') cell = `<span class="badge good nodot">${esc(userLabel(r.att.valideParId))} · ${esc(r.att.dateValidation)}</span>`;
     else if (canValidate) cell = `<button class="btn btn-xs btn-sun" type="button" onclick="validateAttendance('${r.att.id}')">Valider</button>`;
     else if (isDirection()) cell = `<button class="btn btn-xs" type="button" onclick="openManualEditModal('${r.att.id}')">${icon('edit', 'sm')}Modifier</button>`;
+    // retirer la présence : la sienne (non validée), celles des autres pour la direction et la comptabilité
+    if (canRemovePresence(r.ev, r.a.userId)) {
+      cell = `<div class="att-acts">${cell === '—' ? '' : cell}<button class="btn btn-xs btn-ghost" type="button" onclick="removePresence('${r.ev.id}','${r.a.userId}')" title="Retirer la présence">${icon('x', 'sm')}Retirer</button></div>`;
+    }
     html += `<tr><td>${fmtDateShort(r.ev.date)}</td><td class="strong">${esc(r.ev.nom)}</td><td>${esc(userLabel(r.a.userId))}</td><td>${esc(r.a.poste)}</td>
       <td>${esc(r.a.heureArriveePrevue || r.ev.heureDebut || '—')}</td><td>${esc(r.att.heureArrivee || '—')}</td><td>${esc(r.a.heureDepartPrevue || '—')}</td><td>${esc(r.att.heureDepart || '—')}</td>
       <td>${fmtDuration(r.att.heureArrivee, r.att.heureDepart)}</td><td>${statusBadge(r.att.statut)}</td><td>${cell}</td></tr>`;
@@ -641,11 +649,12 @@ function openEventDetail(eventId) {
   const rows = ev.assignments.map((a, i) => {
     const att = a.userId ? ensureAttendance(ev.id, a.userId, a.poste) : null;
     let emp;
+    const rmBtn = (label) => `<button class="btn btn-xs btn-ghost" type="button" onclick="removePresence('${ev.id}','${a.userId}',function(){openEventDetail('${ev.id}')})" title="Retirer la présence">${icon('x', 'sm')}${label}</button>`;
     if (canManageEvents()) {
-      emp = `<select class="cell-in" onchange="assignEmployee('${ev.id}',${i},this.value)"><option value="">— Non attribué —</option>
-        ${DB.users.map((u) => `<option value="${u.id}" ${a.userId === u.id ? 'selected' : ''}>${esc(fullName(u))}</option>`).join('')}</select>`;
+      emp = `<div class="assign-cell"><select class="cell-in" onchange="assignEmployee('${ev.id}',${i},this.value)"><option value="">— Non attribué —</option>
+        ${DB.users.map((u) => `<option value="${u.id}" ${a.userId === u.id ? 'selected' : ''}>${esc(fullName(u))}</option>`).join('')}</select>${a.userId && canRemovePresence(ev, a.userId) ? rmBtn('Retirer') : ''}</div>`;
     } else if (a.userId === CURRENT_USER.id) {
-      emp = `${esc(userLabel(a.userId))} <button class="btn btn-xs btn-ghost" type="button" onclick="releasePoste('${ev.id}',${i},function(){openEventDetail('${ev.id}')})">Se retirer</button>`;
+      emp = `${esc(userLabel(a.userId))} ${canRemovePresence(ev, a.userId) ? rmBtn('Me retirer') : ''}`;
     } else if (!a.userId) {
       emp = `<span class="muted">Non attribué</span> <button class="btn btn-xs btn-sun" type="button" onclick="claimPoste('${ev.id}',${i})">Prendre ce poste</button>`;
     } else emp = esc(userLabel(a.userId));
@@ -668,9 +677,9 @@ function openOpenEventDetail(ev) {
   const rows = ev.assignments.map((a, i) => {
     if (!a.userId) return '';
     const att = ensureAttendance(ev.id, a.userId, a.poste);
-    const canRm = manage || a.userId === CURRENT_USER.id;
+    const canRm = canRemovePresence(ev, a.userId);
     return `<tr><td class="strong">${esc(userLabel(a.userId))}</td><td>${statusBadge(att.statut)}</td><td>${esc(att.heureArrivee || '—')}</td><td>${esc(att.heureDepart || '—')}</td><td class="num">${fmtDuration(att.heureArrivee, att.heureDepart)}</td>
-      <td>${canRm ? `<button class="btn btn-xs btn-ghost" type="button" onclick="releasePoste('${ev.id}',${i},function(){openEventDetail('${ev.id}')})">${a.userId === CURRENT_USER.id ? 'Me désinscrire' : 'Retirer'}</button>` : ''}</td></tr>`;
+      <td>${canRm ? `<button class="btn btn-xs btn-ghost" type="button" onclick="removePresence('${ev.id}','${a.userId}',function(){openEventDetail('${ev.id}')})">${icon('x', 'sm')}${a.userId === CURRENT_USER.id ? 'Me retirer' : 'Retirer'}</button>` : ''}</td></tr>`;
   }).join('');
   const others = DB.users.filter((u) => u.statut === 'Actif' && !ev.assignments.some((a) => a.userId === u.id));
   const n = ev.assignments.filter((a) => a.userId).length;
@@ -686,7 +695,13 @@ function openOpenEventDetail(ev) {
 }
 function assignEmployee(eventId, idx, userId) {
   const ev = DB.events.find((e) => e.id === eventId);
+  const before = ev.assignments[idx].userId;
   ev.assignments[idx].userId = userId || null;
+  if (before !== (userId || null)) ev.assignments[idx].heureArriveePrevue = '';
+  // la personne remplacée perd son pointage de la soirée (sauf s'il est déjà validé ou si elle a un autre poste)
+  if (before && before !== userId && !ev.assignments.some((a) => a.userId === before)) {
+    DB.attendances = DB.attendances.filter((x) => !(x.eventId === eventId && x.userId === before && x.statut !== 'Validé'));
+  }
   if (userId) ensureAttendance(eventId, userId, ev.assignments[idx].poste);
   logActivity('Employé attribué', `${ev.assignments[idx].poste} → ${userLabel(userId)} (${ev.nom})`);
   toast('Attribution enregistrée.', 'success');
@@ -736,22 +751,42 @@ function addParticipant(eventId, userId) {
   toast('Participant ajouté.', 'success');
   refresh(); openEventDetail(eventId);
 }
-function releasePoste(eventId, idx, after) {
+/* ---------- Retirer une présence (imprévu, absence…) ----------
+   Chacun (employé, manager…) retire la sienne tant qu'elle n'est pas validée ; direction et comptabilité,
+   qui gèrent le planning, retirent celle des autres ; la direction peut tout retirer, même une présence validée. */
+function canRemovePresence(ev, userId) {
+  if (!ev || !userId || CURRENT_USER.role === ROLES.GOUVERNEMENT) return false;
+  if (isDirection()) return true;
+  const att = attendanceFor(ev.id, userId);
+  if (att && att.statut === 'Validé') return false;
+  return userId === CURRENT_USER.id || canManageEvents();
+}
+function removePresence(eventId, userId, after) {
   const ev = DB.events.find((e) => e.id === eventId);
-  const a = ev && ev.assignments[idx];
-  if (!a || (a.userId !== CURRENT_USER.id && !canManageEvents())) return;
+  if (!canRemovePresence(ev, userId)) return;
+  const me = userId === CURRENT_USER.id;
   const open = isOpenEvent(ev);
-  confirmAction(open ? (a.userId === CURRENT_USER.id ? 'Voulez-vous vous désinscrire ?' : `Retirer ${esc(userLabel(a.userId))} de la liste ?`) : 'Voulez-vous vous retirer de ce poste ?', () => {
-    const who = a.userId;
-    if (open) ev.assignments.splice(idx, 1);
-    else { a.userId = null; a.heureArriveePrevue = ''; }
-    // le pointage non terminé part avec l'inscription (il ne compterait pas d'heures)
-    DB.attendances = DB.attendances.filter((x) => !(x.eventId === ev.id && x.userId === who && !['À valider', 'Validé'].includes(x.statut)));
-    logActivity(open ? 'Désinscription' : 'Poste libéré', `${a.poste} — ${ev.nom}`);
-    toast(open ? 'Inscription retirée.' : 'Poste libéré.', 'success');
+  const att = attendanceFor(ev.id, userId);
+  const slot = ev.assignments.find((a) => a.userId === userId);
+  const hasHours = !!att && durationMinutes(att.heureArrivee, att.heureDepart) !== null;
+  // fenêtre du jour ouverte : on la rouvre après (la confirmation la remplace)
+  const dayEl = document.querySelector('[data-day-modal]');
+  const day = dayEl ? dayEl.dataset.dayModal : '';
+  const what = `« ${esc(ev.nom)} » du ${fmtDate(ev.date)}`;
+  const text = (me ? `Retirer votre présence à ${what} ?` : `Retirer la présence de <b>${esc(userLabel(userId))}</b> à ${what} ?`)
+    + (open ? '' : ` Le poste${slot ? ` <b>${esc(slot.poste)}</b>` : ''} redevient libre.`)
+    + (hasHours ? ' Les heures notées pour ce service ne seront plus comptées.' : '')
+    + (att && att.statut === 'Validé' ? ' <b>Cette présence était déjà validée.</b>' : '');
+  confirmAction(text, () => {
+    if (open) ev.assignments = ev.assignments.filter((a) => a.userId !== userId);
+    else ev.assignments.forEach((a) => { if (a.userId === userId) { a.userId = null; a.heureArriveePrevue = ''; } });
+    DB.attendances = DB.attendances.filter((x) => !(x.eventId === ev.id && x.userId === userId));
+    logActivity(me ? 'Présence retirée (imprévu)' : 'Présence retirée', `${userLabel(userId)} — ${ev.nom} (${fmtDateShort(ev.date)})${slot && !open ? ' · ' + slot.poste : ''}`);
+    toast(me ? 'Votre présence est retirée.' : 'Présence retirée.', 'success');
     refresh();
     if (after) after();
-  }, open ? 'Retirer' : 'Me retirer');
+    else if (day) openDayModal(day);
+  }, me ? 'Me retirer' : 'Retirer');
 }
 function openCreateEventModal(prefillDate) {
   openModal('Créer un événement', `

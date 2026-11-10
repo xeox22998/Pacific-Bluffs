@@ -8,11 +8,13 @@
    - connectées : GET data · GET version · POST sync · POST poster · POST photo · POST logout
                   POST password · POST users · POST bootstrap · GET export
                   POST import · POST reset · POST piece · GET piece/<compte>/<type>
+                  POST docfile · GET docfile/<document>
 
    Stockage : un document par collection (clé « col:<nom> »), plus « meta »
    (version, initialisation), « sessions », une clé par affiche de soirée
-   (« poster:<id> ») et une par photo d'article de la carte (« photo:<id> »),
-   gardées à part pour ne pas alourdir la synchro. Les mots de passe sont
+   (« poster:<id> »), une par photo d'article de la carte (« photo:<id> ») et
+   une par fichier de l'onglet Documents (« docfile:<id> »), gardées à part
+   pour ne pas alourdir la synchro. Les mots de passe sont
    stockés sous forme d'empreinte PBKDF2-SHA256 salée.
    ===================================================================== */
 import { getStore } from '@netlify/blobs';
@@ -54,6 +56,53 @@ async function dropPhotos(store, before, after) {
   const kept = new Set((Array.isArray(after) ? after : []).filter((m) => m && m.photo).map((m) => m.id));
   for (const m of before) if (m && m.photo && typeof m.id === 'string' && !kept.has(m.id)) await store.delete('photo:' + m.id);
 }
+/* Fichier joint à un document (onglet Documents) : JPEG, PNG ou PDF, clé « docfile:<id> ».
+   ~4 Mo maximum : l'envoi passe par la fonction Netlify, limitée à 6 Mo (le base64 ajoute un tiers). */
+const DOC_MAX = 5400000;
+const DOC_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
+const DOC_DATA = /^data:(image\/jpeg|image\/png|application\/pdf);base64,([A-Za-z0-9+/=]+)$/;
+const DOC_WRITERS = ['DIRECTION', 'SECRETAIRE', 'MANAGER', 'GOUVERNEMENT']; // comme l'ajout d'un document
+const DOC_PRIVATE = 'Direction & Comptabilité';
+const DOC_PRIVATE_READERS = ['DIRECTION', 'SECRETAIRE', 'GOUVERNEMENT'];
+/* Un document enregistré ne garde que la fiche du fichier (version, type, nom, taille), jamais le fichier lui-même */
+function cleanDoc(r) {
+  if (!r || typeof r !== 'object') return r;
+  const out = { ...r };
+  delete out.fichierData; // mode local seulement
+  const f = out.fichier;
+  if (f && typeof f === 'object' && /^[a-z0-9]{1,20}$/.test(String(f.v)) && DOC_TYPES.includes(f.type)) {
+    out.fichier = { v: f.v, type: f.type, nom: clean(f.nom, 120) || 'fichier', taille: Math.max(0, Number(f.taille) || 0) };
+  } else delete out.fichier;
+  return out;
+}
+/* Fichiers des documents supprimés (ou qui n'ont plus de fichier) : effacés */
+async function dropDocFiles(store, before, after) {
+  if (!Array.isArray(before)) return;
+  const kept = new Set((Array.isArray(after) ? after : []).filter((d) => d && d.fichier).map((d) => d.id));
+  for (const d of before) if (d && d.fichier && typeof d.id === 'string' && !kept.has(d.id)) await store.delete('docfile:' + d.id);
+}
+/* Fichier envoyé avant son document : noté « en attente » (clé « docfiles-pending »). Si le document
+   n'arrive jamais (onglet fermé pendant l'envoi), le fichier orphelin est effacé au bout de 6 h. */
+const PENDING_KEY = 'docfiles-pending';
+async function notePendingDocFile(store, id, docs) {
+  const pend = await readJSON(store, PENDING_KEY, {});
+  const now = Date.now();
+  for (const [k, t] of Object.entries(pend)) {
+    if (now - t < 6 * 3600000) continue;
+    if (!docs.some((d) => d && d.id === k && d.fichier)) await store.delete('docfile:' + k);
+    delete pend[k];
+  }
+  if (id) pend[id] = now;
+  await store.setJSON(PENDING_KEY, pend);
+}
+async function clearPendingDocFiles(store, docs) {
+  const pend = await readJSON(store, PENDING_KEY, null);
+  if (!pend) return;
+  let changed = false;
+  for (const d of docs) if (d && d.fichier && pend[d.id]) { delete pend[d.id]; changed = true; }
+  if (changed) await store.setJSON(PENDING_KEY, pend);
+}
+
 // Pièces jointes des fiches de l'équipe (privées : jamais servies au public)
 const PIECES = ['permis', 'identite', 'arme'];
 const PIECE_READERS = ['DIRECTION', 'SECRETAIRE', 'MANAGER', 'GOUVERNEMENT']; // lisent toutes les fiches (l'employé : la sienne)
@@ -352,7 +401,8 @@ async function routeSync(req, store, a) {
   const D = role === 'DIRECTION', S = role === 'SECRETAIRE', M = role === 'MANAGER', G = role === 'GOUVERNEMENT';
   const perms = { // [ajout / modification, suppression] — les fiches (users) sont filtrées champ par champ plus bas
     // comptabilité : pas d'accès pour les employés (ils n'en reçoivent qu'un résumé)
-    users: [true, D], events: [!G, D || S], attendances: [!G, D || M || S], accountingWeeks: [D || S || M, D || S],
+    // pointages : l'employé ne retire que les siens non validés (imprévu), filtré plus bas
+    users: [true, D], events: [!G, D || S], attendances: [!G, !G], accountingWeeks: [D || S || M, D || S],
     documents: [D || S || M || G, D], activityLogs: [true, false], rdv: [D || S, D], barSales: [!G, !G],
     joursSansSoiree: [D || S, D || S], // comme la suppression des soirées
   };
@@ -366,7 +416,9 @@ async function routeSync(req, store, a) {
       if ((ups.length && !canUp) || (rms.length && !canRm)) { denied.push(name); continue; }
       // un jour vidé = { id: « js_<date> », date } et rien d'autre
       if (name === 'joursSansSoiree') ups = ups.filter((r) => r && DATE_RE.test(r.date)).map((r) => ({ id: 'js_' + r.date, date: r.date }));
+      if (name === 'documents') ups = ups.map(cleanDoc);
       let list = await col(store, name);
+      const docsBefore = name === 'documents' ? list.slice() : null;
       const index = new Map(list.map((r, i) => [r && r.id, i]));
       if (name === 'barSales') {
         const asked = ups.length + rms.length;
@@ -384,6 +436,12 @@ async function routeSync(req, store, a) {
           ? await Promise.all(['menu', 'cartes', 'cocons'].map((n) => readJSON(store, 'col:' + n, null))) : [null, null, null];
         ups = ups.map((r) => (r && typeof r === 'object' ? normalizeSale(r, { menu, cartes, cocons }) : null)).filter(Boolean);
         if (ups.length + rms.length < asked) denied.push(name); // l'espace staff recharge alors les vraies données
+      }
+      if (name === 'attendances' && !(D || M || S) && rms.length) {
+        // présence retirée par un employé : la sienne seulement, et pas une fois validée
+        const asked = rms.length;
+        rms = rms.filter((id) => { const i = index.get(id); return i === undefined || (list[i] && list[i].userId === a.user.id && list[i].statut !== 'Validé'); });
+        if (rms.length < asked) denied.push(name);
       }
       for (const rec of ups) {
         if (!rec || typeof rec !== 'object' || typeof rec.id !== 'string') continue;
@@ -417,6 +475,10 @@ async function routeSync(req, store, a) {
           for (const r of list) if (r && rm.has(r.id) && r.pieces) for (const t of Object.keys(r.pieces)) await store.delete(`piece:${r.id}:${t}`);
         }
         list = list.filter((r) => !rm.has(r && r.id));
+      }
+      if (docsBefore) { // le fichier part avec le document ; un fichier dont le document est arrivé n'est plus en attente
+        await dropDocFiles(store, docsBefore, list);
+        await clearPendingDocFiles(store, list);
       }
       if (name === 'activityLogs') {
         list.sort((x, y) => ((y.date || '') + (y.heure || '')).localeCompare((x.date || '') + (x.heure || '')));
@@ -527,6 +589,42 @@ async function routePieceGet(store, a, uid, type) {
   return json({ mime: p.type, data: p.data, v: p.v });
 }
 
+/* Fichier d'un document (JPEG, PNG ou PDF), envoyé avant d'enregistrer le document :
+   l'espace staff note la fiche renvoyée (« fichier ») sur le document puis le synchronise */
+async function routeDocFileSet(req, store, a) {
+  if (!DOC_WRITERS.includes(a.user.role)) return fail(403, "Vous ne pouvez pas ajouter de document.");
+  const b = await readBody(req);
+  const id = clean(b.docId, 60);
+  if (!/^[\w-]{1,60}$/.test(id)) return fail(400, 'Document inconnu.');
+  const m = DOC_DATA.exec(String(b.data || ''));
+  if (!m) return fail(400, 'Fichier non reconnu : choisissez un JPEG, un PNG ou un PDF.');
+  if (m[2].length > DOC_MAX) return fail(413, 'Fichier trop lourd : 4 Mo maximum.');
+  const docs = await col(store, 'documents');
+  const doc = docs.find((d) => d && d.id === id);
+  if (doc && doc.visibilite === DOC_PRIVATE && !DOC_PRIVATE_READERS.includes(a.user.role)) return fail(403, 'Document réservé à la direction et à la comptabilité.');
+  const v = Date.now().toString(36);
+  const taille = Math.floor((m[2].length * 3) / 4) - (m[2].endsWith('==') ? 2 : m[2].endsWith('=') ? 1 : 0);
+  const fichier = { v, type: m[1], nom: clean(b.nom, 120) || 'fichier', taille };
+  await store.setJSON('docfile:' + id, { type: m[1], data: m[2], v, nom: fichier.nom });
+  let version = (await readMeta(store)).version || 0;
+  if (doc) { // document déjà enregistré : on y note le nouveau fichier
+    doc.fichier = fichier;
+    await putCol(store, 'documents', docs);
+    version = (await bump(store)).version;
+  } else await notePendingDocFile(store, id, docs);
+  return json({ ok: true, fichier, version });
+}
+/* Lecture d'un fichier : réservée au staff connecté, avec la même visibilité que le document */
+async function routeDocFileGet(store, a, id) {
+  const docs = await col(store, 'documents');
+  const doc = docs.find((d) => d && d.id === id);
+  if (!doc || !doc.fichier) return fail(404, 'Fichier introuvable.');
+  if (doc.visibilite === DOC_PRIVATE && !DOC_PRIVATE_READERS.includes(a.user.role)) return fail(403, 'Document réservé à la direction et à la comptabilité.');
+  const f = await readJSON(store, 'docfile:' + id, null);
+  if (!f || !f.data) return fail(404, 'Fichier introuvable.');
+  return json({ mime: f.type, data: f.data, nom: f.nom || doc.fichier.nom, v: f.v });
+}
+
 async function routeLogout(store, a) {
   const sessions = await getSessions(store);
   delete sessions[a.token];
@@ -611,6 +709,11 @@ async function routeImport(req, store, a) {
   if (!me) { users.push(a.user); me = a.user; } // ne jamais enfermer dehors la personne qui importe
   me.statut = 'Actif';
   me.role = 'DIRECTION';
+  // les fichiers des documents ne sont pas dans la sauvegarde : on ne garde que ceux encore en ligne ici
+  const docs = (Array.isArray(d.documents) ? d.documents : []).map(cleanDoc);
+  for (const doc of docs) if (doc && doc.fichier && !(await readJSON(store, 'docfile:' + doc.id, null))) delete doc.fichier;
+  await dropDocFiles(store, await col(store, 'documents'), docs);
+  d.documents = docs;
   for (const name of ['events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree']) {
     await putCol(store, name, Array.isArray(d[name]) ? d[name] : []);
   }
@@ -632,6 +735,9 @@ async function routeImport(req, store, a) {
 
 async function routeReset(store, a) {
   if (a.user.role !== 'DIRECTION') return fail(403, 'Réservé à la direction.');
+  await dropDocFiles(store, await col(store, 'documents'), []);
+  for (const k of Object.keys(await readJSON(store, PENDING_KEY, {}))) await store.delete('docfile:' + k);
+  await store.delete(PENDING_KEY);
   for (const name of ['events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree']) await putCol(store, name, []);
   await putCol(store, 'users', [a.user]);
   await dropPhotos(store, await readJSON(store, 'col:menu', null), []);
@@ -673,6 +779,9 @@ export default async (req) => {
     if (route === 'piece' && method === 'POST') return await routePieceSet(req, store, a);
     const pc = /^piece\/([\w-]{1,60})\/(\w{1,20})$/.exec(route);
     if (pc && method === 'GET') return await routePieceGet(store, a, pc[1], pc[2]);
+    if (route === 'docfile' && method === 'POST') return await routeDocFileSet(req, store, a);
+    const dc = /^docfile\/([\w-]{1,60})$/.exec(route);
+    if (dc && method === 'GET') return await routeDocFileGet(store, a, dc[1]);
     if (route === 'logout' && method === 'POST') return await routeLogout(store, a);
     if (route === 'password' && method === 'POST') return await routePassword(req, store, a);
     if (route === 'users' && method === 'POST') return await routeCreateUser(req, store, a);
