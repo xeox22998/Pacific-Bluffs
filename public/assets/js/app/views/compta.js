@@ -77,7 +77,7 @@ function renderComptabilite() {
   </div></section>`;
   // Salaires : commissions des fiches de ventes + lignes saisies à la main
   html += `<section class="section">${sectionHead('Salaires versés', weekCommissionRows(week).length + (week.salaries || []).length, editStruct ? `<button class="btn btn-xs" type="button" onclick="addSalaryRow('${week.id}')">${icon('plus', 'sm')}Ligne</button>` : '')}
-    <p class="field-hint" style="margin:-6px 0 12px">Chaque vendeur touche une part de ses ventes : ${commissionRule()}. Ces lignes viennent du dossier salaires de l'onglet Ventes : elles sont calculées toutes seules et comptées dans la charge « Salaires staff ». Ajoutez une ligne pour une prime ou un autre salaire.</p>
+    <p class="field-hint" style="margin:-6px 0 12px">Chaque vendeur touche une part de ses ventes : ${commissionRule()}. Salaire maximum par semaine : ${capRule()} ; ${SURPLUS_RULE}. Ces lignes viennent du dossier salaires de l'onglet Ventes : elles sont calculées toutes seules et comptées dans la charge « Salaires staff ». Ajoutez une ligne pour une prime ou un autre salaire.</p>
     ${renderSalaryTable(week, editStruct)}</section>`;
   // Ventes de la carte
   html += `<section class="section">${sectionHead('Ventes de la carte — récap de la semaine', null, `<span class="badge nodot">${comptaSales(week, 'carte').length ? 'calculé' : 'informatif'}</span>`)}${renderMenuSales(week, canFill)}</section>`;
@@ -139,10 +139,12 @@ function renderExpenseTable(week, editStruct, canFill) {
     total += expenseValue(week, e);
     // « Salaires staff » : la saisie (primes, autres salaires) + les commissions des fiches de ventes
     const comm = isSalaryExpense(week, e) ? weekCommissionTotal(week) : 0;
+    // commissions au-delà des salaires maximums : pas comptées en charge, elles restent dans le bénéfice
+    const surplus = comm ? weekSurplusTotal(week) : 0;
     const manual = canFill ? moneyInput(e.montant, `updateExpenseCell('${week.id}',${i},'montant',this.value)`) : fmtMoney(Number(e.montant) || 0);
     return `<tr${comm ? ' class="bar-row"' : ''}>
-      <td>${editStruct ? textInput(e.categorie, `updateExpenseCell('${week.id}',${i},'categorie',this.value)`, 190) : `<span class="strong">${esc(e.categorie)}</span>`}${comm ? `<span class="auto-tag">${icon('receipt', 'sm')}+ commissions des ventes</span>` : ''}</td>
-      <td class="num">${comm ? `<span class="auto-sum">${manual}<button class="bar-auto" type="button" onclick="openVentesDay(null,null)" title="Commissions des fiches de ventes (${esc(commissionRule())})">+ ${fmtMoney(comm)}</button></span>` : manual}</td>
+      <td>${editStruct ? textInput(e.categorie, `updateExpenseCell('${week.id}',${i},'categorie',this.value)`, 190) : `<span class="strong">${esc(e.categorie)}</span>`}${comm ? `<span class="auto-tag">${icon('receipt', 'sm')}+ commissions des ventes${surplus ? ` · ${fmtMoney(surplus)} au-delà des max restent à la compta` : ''}</span>` : ''}</td>
+      <td class="num">${comm ? `<span class="auto-sum">${manual}<button class="bar-auto" type="button" onclick="openVentesDay(null,null)" title="Commissions des fiches de ventes (${esc(commissionRule())}), plafonnées au salaire maximum de chacun">+ ${fmtMoney(comm)}</button></span>` : manual}</td>
       <td class="wrap-cell">${canFill ? `<input class="cell-in wide" type="text" value="${esc(e.observations || '')}" onchange="updateExpenseCell('${week.id}',${i},'observations',this.value)">` : esc(e.observations || '—')}</td>
       ${editStruct ? `<td><button class="icon-btn xs" type="button" onclick="removeExpenseRow('${week.id}',${i})" aria-label="Supprimer la ligne">${icon('x', 'sm')}</button></td>` : ''}
     </tr>`;
@@ -161,7 +163,7 @@ function renderSalaryTable(week, editStruct) {
     const p = pay[x.userId] || {};
     return `<tr class="bar-row">
     <td><span class="strong">${esc(userLabel(x.userId))}</span></td>
-    <td>Commission ${esc(x.taux)} · ${fmtMoney(x.total)} de ventes<span class="auto-tag">${icon('receipt', 'sm')}Fiches de ventes</span></td>
+    <td>Commission ${esc(x.taux)} · ${fmtMoney(x.total)} de ventes${x.surplus ? ` · <b>max ${fmtMoney(x.plafond)} atteint</b> : ${fmtMoney(x.surplus)} restent à la compta` : ''}<span class="auto-tag">${icon('receipt', 'sm')}Fiches de ventes</span></td>
     <td class="num strong">${fmtMoney(x.commission)}</td>
     <td>${editStruct ? `<input class="cell-in" type="date" value="${esc(p.dateVersement || '')}" onchange="updateCommissionPay('${week.id}','${x.userId}','dateVersement',this.value)">` : (p.dateVersement ? fmtDateShort(p.dateVersement) : 'Non renseigné')}</td>
     <td>${editStruct ? `<input class="tick" type="checkbox" ${p.valide ? 'checked' : ''} onchange="updateCommissionPay('${week.id}','${x.userId}','valide',this.checked)" aria-label="Salaire validé">` : statusBadge(p.valide ? 'Validé' : 'À valider')}</td>
@@ -377,7 +379,7 @@ function exportWeekCSV(weekId) {
   lines.push([q('TOTAL RECETTES'), '', '', '', '', '', '', '', '', t.recettes].join(';'));
   lines.push('');
   lines.push(['Poste de dépense', 'Montant', 'Observations'].map(q).join(';'));
-  w.expenses.forEach((e) => lines.push([q(e.categorie), expenseValue(w, e), q((isSalaryExpense(w, e) && weekCommissionTotal(w) ? `dont ${weekCommissionTotal(w)} $ de commissions des ventes. ` : '') + (e.observations || ''))].join(';')));
+  w.expenses.forEach((e) => lines.push([q(e.categorie), expenseValue(w, e), q((isSalaryExpense(w, e) && weekCommissionTotal(w) ? `dont ${weekCommissionTotal(w)} $ de commissions des ventes${weekSurplusTotal(w) ? ` (plafonnées : ${weekSurplusTotal(w)} $ au-delà des salaires maximums restent à la compta)` : ''}. ` : '') + (e.observations || ''))].join(';')));
   lines.push([q('TOTAL CHARGES'), t.charges].join(';'));
   lines.push('');
   lines.push([q('Solde précédent'), Number(w.soldePrecedent) || 0].join(';'));
@@ -386,7 +388,7 @@ function exportWeekCSV(weekId) {
   lines.push('');
   lines.push(['Salarié', 'Poste', 'Salaire', 'Date de versement', 'Validé'].map(q).join(';'));
   const pay = w.commissionPay || {};
-  weekCommissionRows(w).forEach((x) => { const p = pay[x.userId] || {}; lines.push([q(userLabel(x.userId)), q(`Commission ${x.taux} sur ${x.total} $ de ventes`), x.commission, q(p.dateVersement), q(p.valide ? 'Oui' : 'Non')].join(';')); });
+  weekCommissionRows(w).forEach((x) => { const p = pay[x.userId] || {}; lines.push([q(userLabel(x.userId)), q(`Commission ${x.taux} sur ${x.total} $ de ventes${x.surplus ? ` (max ${x.plafond} $ atteint : ${x.surplus} $ restent à la compta)` : ''}`), x.commission, q(p.dateVersement), q(p.valide ? 'Oui' : 'Non')].join(';')); });
   (w.salaries || []).forEach((s) => lines.push([q(s.nom), q(s.poste), Number(s.montant) || 0, q(s.dateVersement), q(s.valide ? 'Oui' : 'Non')].join(';')));
   lines.push('');
   lines.push(['Membre', 'Type', 'Début', 'Fin', 'Paiement'].map(q).join(';'));

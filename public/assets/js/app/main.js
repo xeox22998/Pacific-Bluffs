@@ -158,7 +158,7 @@ function enterApp(animated) {
     upgradePostes();                                         // plus de danseuses : agent d'accueil / animateur
     autoClassicSoirees();                                    // les prochains mois sont toujours remplis
     upgradeCarte();                                          // nouvelle carte : remplace l'ancienne enregistrée
-    upgradeTaux();                                           // encadrement à 45 % (mode local ; le serveur le fait en base partagée)
+    upgradeTaux();                                           // encadrement à 35 % + salaires max (mode local ; le serveur le fait en base partagée)
     syncAllRdv();                                            // privatisations datées → soirées privées au planning
     renderShell();
     renderPage(true);

@@ -27,17 +27,21 @@ function subRoleOf(u) { return u && subRolesOf(u.role).includes(u.sousRole) ? u.
 /* Rôle affiché : « Manager · Bar », « Employé · Barman / Barmaid »… */
 function roleLabel(u) { const s = subRoleOf(u); return (ROLE_LABEL[u.role] || '') + (s ? ' · ' + s : ''); }
 /* Grades des employés (à côté du sous-rôle, attribués par la direction seulement) : ils fixent la
-   commission sur les ventes ; un employé sans grade touche COMMISSION_RATE. Managers, comptabilité et
-   direction ont un taux fixe (ROLE_RATES). Mêmes listes dans netlify/functions/api.mjs (GRADES,
-   ROLE_RATES), revérifiées par le serveur. */
-const ROLE_RATES = { [ROLES.MANAGER]: 0.45, [ROLES.SECRETAIRE]: 0.45, [ROLES.DIRECTION]: 0.45 };
+   commission sur les ventes et le salaire maximum de la semaine ; un employé sans grade touche
+   COMMISSION_RATE, plafonné à BASE_CAP. Managers, comptabilité et direction ont un taux fixe (ROLE_RATES)
+   et un maximum fixe (ROLE_CAPS ; direction : pas de maximum). Mêmes valeurs dans
+   netlify/functions/api.mjs (GRADES, GRADE_CAPS, ROLE_RATES, ROLE_CAPS, BASE_CAP), revérifiées par le serveur. */
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const ROLE_RATES = { [ROLES.MANAGER]: 0.35, [ROLES.SECRETAIRE]: 0.35, [ROLES.DIRECTION]: 0.35 };
+const ROLE_CAPS = { [ROLES.MANAGER]: 14000, [ROLES.SECRETAIRE]: 14000 }; // salaire max par semaine ; direction : sans maximum
 const ROLE_RATE_NAMES = { [ROLES.MANAGER]: 'les managers', [ROLES.SECRETAIRE]: 'la comptabilité', [ROLES.DIRECTION]: 'la direction' };
-function roleRate(role) { return Object.prototype.hasOwnProperty.call(ROLE_RATES, role) ? ROLE_RATES[role] : 0; }
+function roleRate(role) { return hasOwn(ROLE_RATES, role) ? ROLE_RATES[role] : 0; }
 const GRADES = [
-  { id: 'Recrue', taux: 0.25 },
-  { id: 'Non qualifié', taux: 0.25 },
-  { id: 'Qualifié', taux: 0.35 },
+  { id: 'Recrue', taux: 0.25, plafond: 10000 },
+  { id: 'Non qualifié', taux: 0.25, plafond: 10000 },
+  { id: 'Qualifié', taux: 0.35, plafond: 12000 },
 ];
+const BASE_CAP = 10000; // employé sans grade (comme un non qualifié)
 const DEFAULT_GRADE = 'Recrue'; // proposé à la création et à la validation d'un compte employé
 function hasGrades(role) { return role === ROLES.EMPLOYE; }
 function gradeOf(u) { return u && hasGrades(u.role) && GRADES.some((g) => g.id === u.grade) ? u.grade : ''; }
@@ -172,14 +176,19 @@ function defaultExpenseRows() { return EXPENSE_CATS.map((c) => ({ categorie: c, 
    journée se ferme : ses ventes passent toutes seules dans la comptabilité (cases « Bar &
    boissons », « Entrées soirées », « Hébergements », « Cartes membres ») et dans le dossier salaires.
    Chaque vendeur touche une part de chaque vente : c'est son salaire de la semaine, du lundi 6h au
-   lundi 6h suivant (= les journées de service du lundi au dimanche). Part = 45 % pour les managers,
+   lundi 6h suivant (= les journées de service du lundi au dimanche). Part = 35 % pour les managers,
    la comptabilité et la direction (ROLE_RATES), sinon le taux du grade de l'employé (GRADES : 35 %
    qualifié, 25 % non qualifié et recrue), COMMISSION_RATE (25 %) pour un employé sans grade.
-   Le taux est gardé sur la vente (champ taux, fixé par le serveur) : un changement de grade ou de rôle
-   compte pour les ventes notées ensuite ; les anciennes ventes sans taux restent à COMMISSION_RATE.
-   Exception (14/11/2026) : le passage à 45 % a été appliqué aussi aux ventes déjà notées par les
-   managers, la comptabilité et la direction, une seule fois (upgradeTaux ici en mode local,
-   upgradeRates dans api.mjs en base partagée).
+   Salaire maximum de la semaine (plafond) : 14 000 $ managers et comptabilité, 12 000 $ employé qualifié,
+   10 000 $ non qualifié, recrue et employé sans grade, pas de maximum pour la direction. Au-delà, la
+   commission n'est pas versée : le surplus reste dans la compta (il n'entre pas dans la charge
+   « Salaires staff »), sans commission.
+   Le taux et le plafond sont gardés sur la vente (champs taux et plafond, fixés par le serveur ; plafond 0
+   = sans maximum) : un changement de grade ou de rôle compte pour les ventes notées ensuite. Le plafond
+   d'une semaine = le plus haut des plafonds de ses ventes. Les anciennes ventes sans taux restent à COMMISSION_RATE.
+   Exceptions : l'encadrement (managers, comptabilité, direction) est passé à 45 % puis revenu à 35 %
+   (14/11/2026), ventes déjà notées comprises, et les plafonds ont été posés sur les ventes déjà notées
+   (une seule fois : upgradeTaux ici en mode local, upgradeRates dans api.mjs en base partagée).
    ===================================================================== */
 const SALE_TYPES = [
   { id: 'carte', label: 'Carte', long: 'Fiche des ventes de la carte', emoji: '🍹', compta: 'Bar & boissons' },
@@ -215,24 +224,66 @@ function sumSales(list) { return list.reduce((t, s) => t + saleTotal(s), 0); }
 /* Commissions : taux du grade du vendeur, gardé sur chaque vente */
 const round2 = (n) => Math.round(n * 100) / 100;
 function pctOf(rate) { return Math.round(rate * 100) + ' %'; }
-/* Taux d'un vendeur aujourd'hui : rôle (45 % managers, comptabilité, direction), sinon grade de l'employé */
+/* Taux d'un vendeur aujourd'hui : rôle (35 % managers, comptabilité, direction), sinon grade de l'employé */
 function sellerRate(u) {
   const r = u ? roleRate(u.role) : 0;
   if (r) return r;
   const g = GRADES.find((x) => x.id === gradeOf(u));
   return g ? g.taux : COMMISSION_RATE;
 }
-function userRate(userId) { return sellerRate((DB && DB.users || []).find((u) => u.id === userId)); }
+/* Salaire maximum de la semaine d'un vendeur aujourd'hui (0 = sans maximum : direction) */
+function sellerCap(u) {
+  if (!u) return 0;
+  if (u.role === ROLES.EMPLOYE) { const g = GRADES.find((x) => x.id === gradeOf(u)); return g ? g.plafond : BASE_CAP; }
+  return hasOwn(ROLE_CAPS, u.role) ? ROLE_CAPS[u.role] : 0;
+}
+function findSeller(userId) { return (DB && DB.users || []).find((u) => u.id === userId); }
+function userRate(userId) { return sellerRate(findSeller(userId)); }
+function userCap(userId) { return sellerCap(findSeller(userId)); }
 function saleRate(s) { const t = Number(s && s.taux); return t > 0 && t < 1 ? t : COMMISSION_RATE; }
+/* Plafond gardé sur la vente (0 = sans maximum) ; vente plus ancienne que les plafonds : celui du vendeur aujourd'hui */
+function saleCap(s) {
+  if (s && s.plafond !== undefined && s.plafond !== null && Number.isFinite(Number(s.plafond))) return Math.max(0, Number(s.plafond));
+  return userCap(s && s.userId);
+}
 function saleCommission(s) { return round2(saleTotal(s) * saleRate(s)); }
 function commissionOfSales(list) { return round2(list.reduce((t, s) => t + saleTotal(s) * saleRate(s), 0)); }
+/* Plafond d'une semaine de ventes d'un vendeur : le plus haut de ses ventes (0 = sans maximum) */
+function capOfSales(list) {
+  let m = -1;
+  for (const s of list) { const c = saleCap(s); if (!c) return 0; m = Math.max(m, c); }
+  return m < 0 ? 0 : m;
+}
+/* Salaire de la semaine d'UN vendeur : commission de ses ventes passées en compta (done) et de la soirée
+   en cours (pend), plafonnée. salaire = done + pending ; surplus = ce qui dépasse le plafond (reste à la compta) */
+function sellerPay(done, pend) {
+  const all = done.concat(pend || []);
+  const cap = capOfSales(all);
+  const brut = commissionOfSales(all), brutDone = commissionOfSales(done);
+  const lim = (x) => (cap ? Math.min(cap, x) : x);
+  const salaire = round2(lim(brut)), verse = round2(lim(brutDone));
+  return { cap, brut, salaire, done: verse, pending: round2(salaire - verse), surplus: round2(brut - salaire), surplusDone: round2(brutDone - verse) };
+}
+/* Même calcul pour des ventes de plusieurs vendeurs (une semaine) : chaque vendeur a son plafond */
+function payOfSales(done, pend) {
+  const ids = [...new Set(done.concat(pend || []).map((s) => s.userId))];
+  const tot = { brut: 0, salaire: 0, done: 0, pending: 0, surplus: 0, surplusDone: 0, capped: [] };
+  ids.forEach((id) => {
+    const p = sellerPay(done.filter((s) => s.userId === id), (pend || []).filter((s) => s.userId === id));
+    ['brut', 'salaire', 'done', 'pending', 'surplus', 'surplusDone'].forEach((k) => { tot[k] = round2(tot[k] + p[k]); });
+    if (p.surplus > 0) tot.capped.push(id);
+  });
+  return tot;
+}
+/* Ventes de la même semaine de salaire (lundi → dimanche) qu'une date, pour un vendeur ou une liste de vendeurs */
+function weekSalesOf(date, ids) { const mon = mondayOf(date); return salesInRange(mon, shiftISO(mon, 6)).filter((s) => !ids || ids.includes(s.userId)); }
 /* Taux d'une liste de ventes : « 35 % », « 25 à 35 % » (taux mélangés), ou le taux par défaut si elle est vide */
 function ratesText(list, fallback) {
   const r = [...new Set(list.map(saleRate))].sort((a, b) => a - b);
   if (!r.length) return typeof fallback === 'string' ? fallback : pctOf(fallback === undefined ? COMMISSION_RATE : fallback);
   return r.length === 1 ? pctOf(r[0]) : `${Math.round(r[0] * 100)} à ${pctOf(r[r.length - 1])}`;
 }
-/* Fourchette de tous les taux possibles : « 25 à 45 % » (tout le staff, avant la première vente) */
+/* Fourchette de tous les taux possibles : « 25 à 35 % » (tout le staff, avant la première vente) */
 function allRatesRange() { const t = rateGroups().map((x) => x.taux); return `${Math.round(Math.min(...t) * 100)} à ${pctOf(Math.max(...t))}`; }
 const joinFr = (list, last) => (list.length > 1 ? list.slice(0, -1).join(', ') + last + list[list.length - 1] : list[0] || '');
 /* Taux groupés du plus haut au plus bas : [{ taux, roles: [...], grades: [...] }] */
@@ -244,27 +295,47 @@ function rateGroups() {
   const last = (a, b) => (a === 'Recrue') - (b === 'Recrue'); // « non qualifié ou recrue »
   return [...by.values()].map((x) => ({ ...x, grades: x.grades.sort(last) })).sort((a, b) => b.taux - a.taux);
 }
-/* Règle complète : « 45 % pour les managers, la comptabilité et la direction ; 35 % pour un employé qualifié ;
-   25 % pour un employé non qualifié ou une recrue » */
+const GRADE_NAMES = { 'Qualifié': 'les employés qualifiés', 'Non qualifié': 'les employés non qualifiés', 'Recrue': 'les recrues' };
+/* Règle complète : « 35 % pour les managers, la comptabilité, la direction et les employés qualifiés ;
+   25 % pour les employés non qualifiés et les recrues » */
 function commissionRule() {
-  return rateGroups().map((x) => {
-    const who = [joinFr(x.roles.map((r) => ROLE_RATE_NAMES[r]), ' et '),
-      joinFr(x.grades.map((g) => (g === 'Recrue' ? 'une recrue' : 'un employé ' + g.toLowerCase())), ' ou ')].filter(Boolean).join(', ');
-    return `${pctOf(x.taux)} pour ${who}`;
-  }).join(' ; ');
+  return rateGroups().map((x) => `${pctOf(x.taux)} pour ${joinFr(x.roles.map((r) => ROLE_RATE_NAMES[r]).concat(x.grades.map((g) => GRADE_NAMES[g])), ' et ')}`).join(' ; ');
 }
-/* Version courte (badges) : « 45 % encadrement · 35 % qualifié · 25 % non qualifié / recrue » */
+/* Version courte (badges) : « 35 % encadrement et qualifiés · 25 % non qualifiés et recrues » */
 function commissionRuleShort() {
-  return rateGroups().map((x) => `${pctOf(x.taux)} ${[x.roles.length ? 'encadrement' : '', x.grades.map((g) => g.toLowerCase()).join(' / ')].filter(Boolean).join(', ')}`).join(' · ');
+  const short = { 'Qualifié': 'qualifiés', 'Non qualifié': 'non qualifiés', 'Recrue': 'recrues' };
+  return rateGroups().map((x) => `${pctOf(x.taux)} ${joinFr((x.roles.length ? ['encadrement'] : []).concat(x.grades.map((g) => short[g])), ' et ')}`).join(' · ');
 }
-/* Managers, comptabilité et direction passent à 45 % (14/11/2026) : leurs ventes déjà notées aussi, une seule fois.
+/* Salaires maximums : « 14 000 $ pour les managers et la comptabilité, 12 000 $ pour les employés qualifiés,
+   10 000 $ pour les employés non qualifiés et les recrues ; pas de maximum pour la direction » */
+function capRule() {
+  const by = new Map();
+  const add = (cap, name) => { if (!by.has(cap)) by.set(cap, []); by.get(cap).push(name); };
+  Object.keys(ROLE_CAPS).forEach((r) => add(ROLE_CAPS[r], ROLE_RATE_NAMES[r]));
+  GRADES.slice().sort((a, b) => (a.id === 'Recrue') - (b.id === 'Recrue')).forEach((g) => add(g.plafond, GRADE_NAMES[g.id]));
+  const free = Object.keys(ROLE_RATES).filter((r) => r !== ROLES.EMPLOYE && !hasOwn(ROLE_CAPS, r)).map((r) => ROLE_RATE_NAMES[r]);
+  return [...by].sort((a, b) => b[0] - a[0]).map(([cap, names]) => `${fmtMoney(cap)} pour ${joinFr(names, ' et ')}`).join(', ')
+    + (free.length ? ` ; pas de maximum pour ${joinFr(free, ' et ')}` : '');
+}
+/* Ce que devient le surplus (texte commun) */
+const SURPLUS_RULE = 'au-delà, la commission n\'est pas versée : le surplus reste dans la compta, sans commission';
+/* « max 12 000 $ » / « sans max » (0 = sans maximum) */
+function capShort(c) { return c ? `max ${fmtMoney(c)}` : 'sans max'; }
+/* Mise à jour des ventes déjà notées, une seule fois (version 3 du 14/11/2026) : l'encadrement (managers,
+   comptabilité, direction) au taux de son rôle (35 %), et le plafond posé sur les ventes qui n'en ont pas.
    Mode local seulement : en base partagée, c'est le serveur (upgradeRates dans api.mjs). */
-const TAUX_VERSION = 2;
+const TAUX_VERSION = 3;
 function upgradeTaux() {
   if (!DB || isShared() || (Number(DB.tauxV) || 0) >= TAUX_VERSION) return;
-  const roleOf = new Map((DB.users || []).map((u) => [u && u.id, u && u.role]));
+  const byId = new Map((DB.users || []).map((u) => [u && u.id, u]));
   let n = 0;
-  (DB.barSales || []).forEach((s) => { const r = s ? roleRate(roleOf.get(s.userId)) : 0; if (r && s.taux !== r) { s.taux = r; n++; } });
+  (DB.barSales || []).forEach((s) => {
+    if (!s) return;
+    const u = byId.get(s.userId);
+    const r = u ? roleRate(u.role) : 0;
+    if (r && s.taux !== r) { s.taux = r; n++; }
+    if (s.plafond === undefined || s.plafond === null) s.plafond = sellerCap(u);
+  });
   DB.tauxV = TAUX_VERSION;
   if (n) logActivity('Commissions mises à jour', `${n} vente(s) de l'encadrement passée(s) à ${pctOf(ROLE_RATES[ROLES.DIRECTION])}`);
   saveSoon();
@@ -317,21 +388,30 @@ function revCell(week, r, d) {
   return Number(r[d]) || 0;
 }
 function revenueRowTotal(r, week) { return DAY_KEYS.reduce((a, d) => a + revCell(week, r, d), 0) + (Number(r.autre) || 0); }
-/* Salaires : commission de chaque vendeur sur les ventes transférées de la semaine */
-function salesBySeller(list) {
+/* Salaires : commission de chaque vendeur sur les ventes d'UNE semaine (list = ses ventes passées en compta,
+   pend = celles de la soirée en cours, pas encore passées), plafonnée au salaire maximum du vendeur.
+   commission = salaire versé (passé en compta) ; brut = commission avant plafond ; surplus = ce qui reste à la compta */
+function salesBySeller(list, pend) {
   const map = new Map();
+  const row = (id) => map.get(id) || { userId: id, carte: 0, hospitalite: 0, carteVip: 0, total: 0, count: 0, list: [], pend: [] };
   list.forEach((s) => {
-    const x = map.get(s.userId) || { userId: s.userId, carte: 0, hospitalite: 0, carteVip: 0, total: 0, count: 0, raw: 0, list: [] };
+    const x = row(s.userId);
     const t = saleTotal(s);
     x[saleType(s)] = (x[saleType(s)] || 0) + t; x.total += t; x.count += 1;
-    x.raw += t * saleRate(s); x.list.push(s);
+    x.list.push(s);
     map.set(s.userId, x);
   });
-  // commission : part de chaque vente au taux du vendeur ; taux : « 45 % » (ou « 25 à 35 % » après un changement de grade ou de rôle)
-  return [...map.values()].map(({ raw, list, ...x }) => ({ ...x, commission: round2(raw), taux: ratesText(list) })).sort((a, b) => b.total - a.total);
+  (pend || []).forEach((s) => { const x = row(s.userId); x.pend.push(s); map.set(s.userId, x); });
+  // taux : « 35 % » (ou « 25 à 35 % » après un changement de grade ou de rôle) ; plafond : 0 = sans maximum
+  return [...map.values()].map(({ list: done, pend: p, ...x }) => {
+    const pay = sellerPay(done, p);
+    return { ...x, commission: pay.done, brut: commissionOfSales(done), surplus: pay.surplusDone, plafond: pay.cap, pay, taux: ratesText(done.concat(p), userRate(x.userId)) };
+  }).sort((a, b) => b.total - a.total || b.pay.pending - a.pay.pending);
 }
 function weekCommissionRows(week) { return salesBySeller(comptaSales(week)); }
-function weekCommissionTotal(week) { return weekCommissionRows(week).reduce((t, x) => t + x.commission, 0); }
+/* Charge « Salaires staff » : salaires plafonnés (le surplus des plafonds reste dans la compta) */
+function weekCommissionTotal(week) { return round2(weekCommissionRows(week).reduce((t, x) => t + x.commission, 0)); }
+function weekSurplusTotal(week) { return round2(weekCommissionRows(week).reduce((t, x) => t + x.surplus, 0)); }
 /* Charge « Salaires staff » : saisie manuelle + commissions calculées */
 function isSalaryExpense(week, e) { return (week.expenses || []).find((x) => /salaire/i.test(x.categorie || '')) === e; }
 function expenseValue(week, e) { return (Number(e.montant) || 0) + (isSalaryExpense(week, e) ? weekCommissionTotal(week) : 0); }

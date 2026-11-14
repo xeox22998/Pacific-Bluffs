@@ -156,7 +156,7 @@ function openEmployeeSheet(userId) {
   }));
   salaries.sort((a, b) => a.numero - b.numero);
   openModal(esc(fullName(u)), `
-    <div class="sheet-h">${avatarHtml(u, 'lg')}<div><div class="confirm-text"><b>${esc(roleLabelFull(u))}</b></div><div class="muted" style="font-size:13.5px">${esc(u.statut)}${u.role !== ROLES.GOUVERNEMENT ? ` · part des ventes <b>${pctOf(sellerRate(u))}</b>` : ''}${(isDirection() || CURRENT_USER.role === ROLES.SECRETAIRE || u.id === CURRENT_USER.id) ? ` · identifiant <b>${esc(u.username)}</b>` : ''}${canEditProfile(u) ? '' : ' · lecture seule'}</div></div></div>
+    <div class="sheet-h">${avatarHtml(u, 'lg')}<div><div class="confirm-text"><b>${esc(roleLabelFull(u))}</b></div><div class="muted" style="font-size:13.5px">${esc(u.statut)}${u.role !== ROLES.GOUVERNEMENT ? ` · part des ventes <b>${pctOf(sellerRate(u))}</b>, ${sellerCap(u) ? `<b>${fmtMoney(sellerCap(u))}</b> maximum par semaine` : 'sans maximum'}` : ''}${(isDirection() || CURRENT_USER.role === ROLES.SECRETAIRE || u.id === CURRENT_USER.id) ? ` · identifiant <b>${esc(u.username)}</b>` : ''}${canEditProfile(u) ? '' : ' · lecture seule'}</div></div></div>
     <div class="emp-stats">
       <div><b>${myAtt.length}</b><span>Services</span></div>
       <div><b>${fmtHours(totalMin)}</b><span>Heures</span></div>
@@ -194,7 +194,7 @@ function renderAdministration() {
       ${active.map((u) => `<tr>
         <td><span style="display:inline-flex;align-items:center;gap:10px">${avatarHtml(u, 'sm')}<b>${esc(fullName(u))}</b></span></td>
         <td><code>${esc(u.username)}</code></td><td>${ROLE_LABEL[u.role]}</td><td>${subRoleOf(u) ? esc(subRoleOf(u)) : `<span class="muted">${subRolesOf(u.role).length ? 'à choisir' : '—'}</span>`}</td>
-        <td>${gradeOf(u) ? `${esc(gradeOf(u))} <small class="muted">${pctOf(sellerRate(u))}</small>` : roleRate(u.role) ? `<span class="muted">— · ${pctOf(roleRate(u.role))}</span>` : `<span class="muted">${hasGrades(u.role) ? 'à choisir' : '—'}</span>`}</td><td>${piecesCount(u)}/${PIECES.length}</td>
+        <td>${gradeOf(u) ? `${esc(gradeOf(u))} <small class="muted">${pctOf(sellerRate(u))} · ${capShort(sellerCap(u))}</small>` : roleRate(u.role) ? `<span class="muted">— · ${pctOf(roleRate(u.role))} · ${capShort(sellerCap(u))}</span>` : `<span class="muted">${hasGrades(u.role) ? 'à choisir' : '—'}</span>`}</td><td>${piecesCount(u)}/${PIECES.length}</td>
         <td>${u.statut === 'Actif' ? '<span class="badge good">Actif</span>' : '<span class="badge bad">Désactivé</span>'}</td>
         <td>${fmtDateShort(u.dateCreation)}</td>
         <td><div style="display:flex;gap:6px">
@@ -221,7 +221,7 @@ function renderAdministration() {
       ['Voir les fiches de l\'équipe', 'La sienne', Y, Y, 'Lecture', Y], ['Modifier les fiches (nom, pièces jointes)', 'Ses pièces jointes', 'La sienne', 'Toutes', 'La sienne', 'Toutes'],
       ['Changer le rôle, le sous-rôle et le grade d\'un compte', N, N, N, N, Y],
     ];
-    html += `<p class="field-hint" style="margin:0 0 12px">Sous-rôles (choisis par la direction) — managers : ${SUB_ROLES.MANAGER.map(esc).join(', ')} · employés : ${SUB_ROLES.EMPLOYE.map(esc).join(', ')}. Le sous-rôle indique la spécialité dans l'équipe ; les droits restent ceux du rôle.<br>Commission sur les ventes : ${esc(commissionRule())}. Managers, comptabilité et direction ont leur taux automatiquement ; celui d'un employé suit son grade (Recrue, Non qualifié, Qualifié), choisi par la direction.</p>`;
+    html += `<p class="field-hint" style="margin:0 0 12px">Sous-rôles (choisis par la direction) — managers : ${SUB_ROLES.MANAGER.map(esc).join(', ')} · employés : ${SUB_ROLES.EMPLOYE.map(esc).join(', ')}. Le sous-rôle indique la spécialité dans l'équipe ; les droits restent ceux du rôle.<br>Commission sur les ventes : ${esc(commissionRule())}. Managers, comptabilité et direction ont leur taux automatiquement ; celui d'un employé suit son grade (Recrue, Non qualifié, Qualifié), choisi par la direction.<br>Salaire maximum par semaine : ${esc(capRule())} ; ${esc(SURPLUS_RULE)}.</p>`;
     html += `<div class="card table-card"><div class="table-scroll"><table class="tbl perm"><thead><tr><th>Fonctionnalité</th><th>Employé</th><th>Manager</th><th>Comptabilité</th><th>Gouv. / Fisc</th><th>Direction</th></tr></thead><tbody>
       ${rows.map((r) => `<tr>${r.map((c, i) => `<td>${i ? c : `<b style="font-weight:500">${c}</b>`}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div>`;
   } else if (adminTab === 'journal') {
@@ -258,7 +258,7 @@ function subRoleField(id, role, sel) {
 }
 /* Grade (employés seulement, choisi par la direction) : à côté du sous-rôle, il fixe la commission sur les ventes */
 function gradeOptions(sel) {
-  return `<option value="">— À choisir (${pctOf(COMMISSION_RATE)}) —</option>` + GRADES.map((g) => `<option value="${esc(g.id)}" ${g.id === sel ? 'selected' : ''}>${esc(g.id)} · ${pctOf(g.taux)}</option>`).join('');
+  return `<option value="">— À choisir (${pctOf(COMMISSION_RATE)} · ${capShort(BASE_CAP)}) —</option>` + GRADES.map((g) => `<option value="${esc(g.id)}" ${g.id === sel ? 'selected' : ''}>${esc(g.id)} · ${pctOf(g.taux)} · ${capShort(g.plafond)}</option>`).join('');
 }
 function gradeField(subId, role, sel) {
   const id = subId + 'Grade';
@@ -288,7 +288,7 @@ function openCreateUserModal() {
     </div>
     <div class="field"><label for="cuRole">Rôle</label><select class="input" id="cuRole" onchange="onRoleSelect(this,'cuSub')">${roleOptions(ROLES.EMPLOYE)}</select></div>
     ${roleExtraFields('cuSub', ROLES.EMPLOYE, '', DEFAULT_GRADE)}
-    <p class="field-hint">Le sous-rôle indique la spécialité de la personne dans l'équipe. Part des ventes : ${esc(commissionRule())} (le grade ne concerne que les employés). Les postes de chaque soirée se choisissent dans le Programme.</p>`,
+    <p class="field-hint">Le sous-rôle indique la spécialité de la personne dans l'équipe. Part des ventes : ${esc(commissionRule())} (le grade ne concerne que les employés). Salaire maximum par semaine : ${esc(capRule())}. Les postes de chaque soirée se choisissent dans le Programme.</p>`,
     `<button class="btn btn-sm btn-ghost" type="button" data-close-modal>Annuler</button><button class="btn btn-sm btn-sun" type="button" onclick="createUser()">Créer le compte</button>`);
 }
 async function createUser() {
@@ -330,7 +330,7 @@ function openEditUserModal(userId) {
     </div>
     ${dir ? `<div class="field"><label for="euRole">Rôle</label><select class="input" id="euRole" onchange="onRoleSelect(this,'euSub')">${roleOptions(u.role)}</select></div>
       ${roleExtraFields('euSub', u.role, subRoleOf(u), gradeOf(u))}
-      <p class="field-hint" style="margin:-4px 0 14px">Part des ventes : ${esc(commissionRule())}. Après un changement de rôle ou de grade, le nouveau taux compte pour les ventes notées ensuite.</p>
+      <p class="field-hint" style="margin:-4px 0 14px">Part des ventes : ${esc(commissionRule())}. Salaire maximum par semaine : ${esc(capRule())}. Après un changement de rôle ou de grade, le nouveau taux et le nouveau maximum comptent pour les ventes notées ensuite.</p>
       <div class="field"><label for="euPass">Nouveau mot de passe (laisser vide pour ne pas changer)</label><input class="input" id="euPass" type="text"></div>`
       : `<p class="field-hint">Rôle : <b>${esc(roleLabelFull(u))}</b> — seule la direction peut changer le rôle, le sous-rôle et le grade. Les pièces jointes se gèrent directement sur la fiche.</p>`}`,
     `<button class="btn btn-sm btn-ghost" type="button" onclick="openEmployeeSheet('${userId}')">Retour</button><button class="btn btn-sm btn-sun" type="button" onclick="saveEditUser('${userId}')">Enregistrer</button>`);
@@ -345,7 +345,7 @@ async function saveEditUser(userId) {
   if (u.id === CURRENT_USER.id && newRole !== ROLES.DIRECTION && u.role === ROLES.DIRECTION && !DB.users.some((x) => x.id !== u.id && x.role === ROLES.DIRECTION && x.statut === 'Actif')) {
     toast('Impossible : vous êtes la seule personne de la direction.', 'error'); return;
   }
-  const oldGrade = gradeOf(u), oldRate = sellerRate(u);
+  const oldGrade = gradeOf(u), oldRate = sellerRate(u), oldCap = sellerCap(u);
   u.prenom = prenom;
   u.nom = document.getElementById('euNom').value.trim() || '/';
   u.role = newRole;
@@ -357,10 +357,11 @@ async function saveEditUser(userId) {
     try { await ClubApi.req('password', { body: { userId: u.id, newPassword: np } }); }
     catch (e) { toast(e.message, 'error'); return; }
   } else if (np) { u.passHash = await hashPassword(u.username, np); delete u.password; }
-  const newGrade = gradeOf(u), newRate = sellerRate(u);
+  const newGrade = gradeOf(u), newRate = sellerRate(u), newCap = sellerCap(u);
   logActivity('Utilisateur modifié', fullName(u)
     + (newGrade !== oldGrade ? ` — grade : ${oldGrade || 'aucun'} → ${newGrade || 'aucun'}` : '')
-    + (newRate !== oldRate ? ` — part des ventes : ${pctOf(oldRate)} → ${pctOf(newRate)}` : ''));
+    + (newRate !== oldRate ? ` — part des ventes : ${pctOf(oldRate)} → ${pctOf(newRate)}` : '')
+    + (newCap !== oldCap ? ` — salaire max : ${capShort(oldCap)} → ${capShort(newCap)}` : ''));
   toast('Utilisateur modifié.', 'success'); closeModal(); renderShell(); refresh();
 }
 function approveUser(userId) {
@@ -456,7 +457,7 @@ function importBackup(input) {
       if (!again) { toast('Sauvegarde importée. Reconnectez-vous avec un compte de cette sauvegarde.', 'success'); doLogout(true); return; }
       CURRENT_USER = again;
       logActivity('Sauvegarde importée', file.name);
-      upgradeTaux(); // ancienne sauvegarde : ventes de l'encadrement à 45 %
+      upgradeTaux(); // ancienne sauvegarde : ventes de l'encadrement à 35 % et salaires maximums
       toast('Sauvegarde importée.', 'success'); renderShell(); renderPage(true);
     }, 'Importer');
   };

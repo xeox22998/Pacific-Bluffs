@@ -6,11 +6,14 @@
    - Journée de service de 6h à 6h (heure de Paris). À 6h du matin, les ventes
      de la soirée passent automatiquement dans la comptabilité (Bar & boissons,
      Entrées soirées, Hébergements, Cartes membres) et dans le dossier salaires.
-   - Salaire : une part de chaque vente selon le vendeur (45 % managers,
+   - Salaire : une part de chaque vente selon le vendeur (35 % managers,
      comptabilité et direction ; employés selon leur grade : 35 % qualifié,
      25 % non qualifié et recrue — ROLE_RATES et GRADES dans data.js),
      gardée sur la vente (taux), calculé du lundi 6h au lundi 6h suivant
-     (soirées du lundi au dimanche), versé en fin de semaine.
+     (soirées du lundi au dimanche), versé en fin de semaine. Salaire maximum
+     par semaine (plafond gardé sur la vente) : 14 000 $ managers et comptabilité,
+     12 000 $ qualifiés, 10 000 $ non qualifiés et recrues, direction sans
+     maximum ; le surplus n'est pas versé et reste dans la compta.
    Droits (revérifiés par le serveur) : chacun n'ajoute et ne retire que SES
    ventes de la soirée en cours ; un employé ne voit que ses ventes et son
    salaire (pas la comptabilité) ; manager et gouvernement lisent toutes les
@@ -75,14 +78,15 @@ function renderVentes() {
   const scope = scopeLabel();
   const mine = scope === 'me';
   const who = scope === 'one' ? userLabel(VENTE_SELLER) : '';
-  const myRate = sellerRate(CURRENT_USER);
+  const myRate = sellerRate(CURRENT_USER), myCap = sellerCap(CURRENT_USER);
+  const capTxt = (c) => (c ? `${fmtMoney(c)} maximum par semaine` : 'sans maximum');
   const scopeRate = scope === 'all' ? allRatesRange() : userRate(mine ? CURRENT_USER.id : VENTE_SELLER); // taux affiché quand il n'y a pas encore de vente
 
   const actions = canCorrectSales() ? `<button class="btn btn-sm" type="button" onclick="exportDossierCSV()">${icon('download', 'sm')}Export du dossier</button>` : '';
   let html = pageHead('Ventes', mine ? 'Mes fiches de ventes' : (who ? `Ventes de ${esc(who)}` : 'Fiches de ventes'),
     `Notez chaque vente au moment où vous la faites : elle est enregistrée tout de suite, soirée par soirée. À <b>6h du matin</b>, les ventes de la soirée passent automatiquement ${navAllowed('comptabilite') ? 'dans la comptabilité et ' : ''}dans le dossier salaires. ${canSeeAllSales()
-      ? `Chaque vendeur touche une part de ses ventes (<b>${commissionRule()}</b>) : c'est son salaire de la semaine`
-      : `Vous touchez <b>${pctOf(myRate)}</b> de vos ventes${gradeOf(CURRENT_USER) ? ` (grade ${esc(gradeOf(CURRENT_USER).toLowerCase())})` : ''} : c'est votre salaire de la semaine`}, calculé <b>du lundi 6h au lundi 6h</b>.${canSeeAllSales() && canFillFinance() ? ` Votre part : <b>${pctOf(myRate)}</b>.` : ''}`, actions);
+      ? `Chaque vendeur touche une part de ses ventes (<b>${commissionRule()}</b>) : c'est son salaire de la semaine, calculé <b>du lundi 6h au lundi 6h</b>. Salaire maximum par semaine : <b>${capRule()}</b> ; ${SURPLUS_RULE}.${canFillFinance() ? ` Votre part : <b>${pctOf(myRate)}</b>, ${capTxt(myCap)}.` : ''}`
+      : `Vous touchez <b>${pctOf(myRate)}</b> de vos ventes${gradeOf(CURRENT_USER) ? ` (grade ${esc(gradeOf(CURRENT_USER).toLowerCase())})` : ''} : c'est votre salaire de la semaine, calculé <b>du lundi 6h au lundi 6h</b>, ${myCap ? `<b>${fmtMoney(myCap)} maximum</b> par semaine ; ${SURPLUS_RULE}` : 'sans maximum'}.`}`, actions);
 
   if (!canFillFinance()) html += `<div class="hint">${icon('eye', 'sm')}<span>Consultation en lecture seule, à titre de contrôle fiscal.</span></div>`;
 
@@ -96,11 +100,14 @@ function renderVentes() {
   const week = scopeSales(salesInRange(mon, shiftISO(mon, 6)));
   const weekDone = week.filter(isSaleTransferred);
   const tonightTotal = sumSales(tonight);
+  // salaires plafonnés : chaque vendeur a son maximum de la semaine, le surplus reste à la compta
+  const pay = payOfSales(weekDone, week.filter((s) => !isSaleTransferred(s)));
+  const maxFoot = pay.surplus > 0 ? ` · max atteint : ${fmtMoney(pay.surplus)} restent à la compta` : '';
   html += `<div class="stats-row stagger">
     ${statTile(mine ? 'Mes ventes ce soir' : 'Ventes ce soir', 'receipt', tonightTotal, { money: true, foot: `${tonight.length} vente${tonight.length > 1 ? 's' : ''}` })}
-    ${statTile(mine ? 'Ma part ce soir' : 'Part des vendeurs ce soir', 'coins', commissionOfSales(tonight), { money: true, foot: `${ratesText(tonight, scopeRate)} des ventes` })}
+    ${statTile(mine ? 'Ma part ce soir' : 'Part des vendeurs ce soir', 'coins', pay.pending, { money: true, foot: `${ratesText(tonight, scopeRate)} des ventes${pay.surplus > pay.surplusDone ? ' · max de la semaine atteint' : ''}` })}
     ${statTile(mine ? 'Mes ventes de la semaine' : 'Ventes de la semaine', 'trend', sumSales(week), { money: true, foot: salaryWeekLabel(mon) })}
-    ${statTile(mine ? 'Mon salaire de la semaine' : 'Salaires de la semaine', 'wallet', commissionOfSales(weekDone), { money: true, cls: 'dark', foot: tonight.length ? `+ ${fmtMoney(commissionOfSales(tonight))} à 6h` : 'versé en fin de semaine' })}
+    ${statTile(mine ? 'Mon salaire de la semaine' : 'Salaires de la semaine', 'wallet', pay.done, { money: true, cls: 'dark', foot: (pay.pending ? `+ ${fmtMoney(pay.pending)} à 6h` : 'versé en fin de semaine') + (mine && myCap ? ` · max ${fmtMoney(myCap)}` : '') + maxFoot })}
   </div>`;
 
   // Filtre vendeur (encadrement)
@@ -162,6 +169,10 @@ function renderSaleSheet(list) {
   // part de chaque vente : un seul taux → dans l'en-tête, des taux différents (grades) → sur chaque ligne
   const fallback = scopeLabel() === 'all' ? allRatesRange() : userRate(scopeLabel() === 'me' ? CURRENT_USER.id : VENTE_SELLER);
   const mixed = new Set(rows.map(saleRate)).size > 1;
+  // vendeurs de cette fiche qui dépassent leur salaire maximum de la semaine (le surplus reste à la compta)
+  const sellers = [...new Set(rows.map((s) => s.userId))];
+  const wk = weekSalesOf(VENTE_DAY, sellers);
+  const capped = rows.length && payOfSales(wk.filter(isSaleTransferred), wk.filter((s) => !isSaleTransferred(s))).surplus > 0;
 
   let form = '';
   if (canAddSaleOn(VENTE_DAY)) form = saleForm();
@@ -169,7 +180,7 @@ function renderSaleSheet(list) {
 
   return `<div class="card sale-sheet">
     <div class="bs-head"><div><b>${t.emoji} ${t.long} — ${esc(saleDayLabel(VENTE_DAY).toLowerCase())}</b><small>${esc(status)}</small></div>
-      <div class="bs-total">${fmtMoney(total)}<small>part ${ratesText(rows, fallback)} : ${fmtMoney(commissionOfSales(rows))}</small></div></div>
+      <div class="bs-total">${fmtMoney(total)}<small>part ${ratesText(rows, fallback)} : ${fmtMoney(commissionOfSales(rows))}${capped ? ' · salaire max de la semaine atteint : le surplus reste à la compta' : ''}</small></div></div>
     ${form}
     ${rows.length ? `<div class="table-scroll"><table class="tbl compact bs-tbl"><thead><tr><th>Heure</th>${showSeller ? '<th>Vendeur</th>' : ''}<th>${isCard ? 'Carte' : isHosp ? 'Prestation' : 'Article'}</th>${showClient ? '<th>Client</th>' : ''}<th class="num">Qté</th><th class="num">Prix</th><th class="num">Total</th><th class="num">Part${mixed ? '' : ' ' + ratesText(rows)}</th><th></th></tr></thead><tbody>
       ${rows.map((s) => `<tr><td>${esc(s.heure || '—')}</td>${showSeller ? `<td>${esc(userLabel(s.userId))}</td>` : ''}<td class="strong">${isHosp ? `<span class="hosp-tag ${({ 'Hébergement': 'heb', 'Cocon': 'coc' })[hospKind(s)] || ''}">${HOSP_TAGS[hospKind(s)]}</span>` : ''}${esc(s.nom)}</td>${showClient ? `<td>${esc(saleClients(s) || '—')}</td>` : ''}
@@ -285,10 +296,12 @@ function addVente() {
     rec = { nom: 'Carte ' + tier.nom, categorie: tier.key, client, prix: Number(tier.prix) || 0, qty: 1 };
     VENTE_LAST.tier = tier.key; focus = 'svClient';
   }
-  // taux : grade du vendeur au moment de la vente (revérifié et fixé par le serveur en base partagée)
-  const sale = { id: uid('vt'), type, date, day: dayKeyOf(date), userId: sellerId, ...rec, taux: userRate(sellerId), heure: nowHM(), createdAt: new Date().toISOString() };
+  // taux et salaire maximum : rôle / grade du vendeur au moment de la vente (revérifiés et fixés par le serveur en base partagée)
+  const sale = { id: uid('vt'), type, date, day: dayKeyOf(date), userId: sellerId, ...rec, taux: userRate(sellerId), plafond: userCap(sellerId), heure: nowHM(), createdAt: new Date().toISOString() };
   DB.barSales.push(sale);
-  toast(`${rec.qty} × ${rec.nom} enregistré (${fmtMoney(saleTotal(sale))}) — part ${pctOf(sale.taux)} : ${fmtMoney(saleCommission(sale))}.`, 'success');
+  const wk = weekSalesOf(date, [sellerId]);
+  const over = sellerPay(wk.filter(isSaleTransferred), wk.filter((s) => !isSaleTransferred(s))).surplus > 0;
+  toast(`${rec.qty} × ${rec.nom} enregistré (${fmtMoney(saleTotal(sale))}) — part ${pctOf(sale.taux)} : ${fmtMoney(saleCommission(sale))}${over ? ` (salaire max de la semaine atteint : le surplus reste à la compta)` : ''}.`, 'success');
   refresh();
   setTimeout(() => { const el = document.getElementById(focus); if (el) el.focus(); }, 60);
 }
@@ -320,29 +333,27 @@ function renderDossier() {
   const rateTxt = all ? commissionRuleShort() : ratesText(sales, userRate(uid0));
 
   let html = `<section class="section">${sectionHead('Dossier salaires', null, `<span class="badge nodot">${rateTxt}${all ? '' : ' de chaque vente'}</span>`)}
-    <p class="field-hint" style="margin:-6px 0 12px">Les fiches s'enregistrent chaque soirée et remplissent le dossier à 6h. Salaire de la semaine = ${all ? `la part de chaque vente (${commissionRule()})` : `${rateTxt} des ventes`} <b>du lundi 6h au lundi 6h</b> suivant (${salaryWeekLabel(from)}), versé en fin de semaine${acc && navAllowed('comptabilite') ? ` (comptabilité semaine ${acc.numero})` : ''}.</p>
+    <p class="field-hint" style="margin:-6px 0 12px">Les fiches s'enregistrent chaque soirée et remplissent le dossier à 6h. Salaire de la semaine = ${all ? `la part de chaque vente (${commissionRule()})` : `${rateTxt} des ventes`} <b>du lundi 6h au lundi 6h</b> suivant (${salaryWeekLabel(from)}), versé en fin de semaine${acc && navAllowed('comptabilite') ? ` (comptabilité semaine ${acc.numero})` : ''}. Salaire maximum par semaine : ${all ? capRule() : (userCap(uid0) ? fmtMoney(userCap(uid0)) : 'aucun')} ; ${SURPLUS_RULE}.</p>
     <div class="pill-row" role="tablist" aria-label="Semaines du dossier">${mondays.map((m) => `<button class="pill plain ${m === DOSSIER_WEEK ? 'is-active' : ''}" type="button" role="tab" aria-selected="${m === DOSSIER_WEEK}" onclick="selectDossierWeek('${m}')">${m === curMon ? 'Cette semaine' : 'Sem. du ' + fmtDateShort(m).slice(0, 5)}</button>`).join('')}</div>`;
 
   if (all) {
-    const rows = salesBySeller(done);
-    const pend = new Map(salesBySeller(pending).map((x) => [x.userId, x]));
-    pend.forEach((x, id) => { if (!rows.some((r) => r.userId === id)) rows.push({ userId: id, carte: 0, hospitalite: 0, carteVip: 0, total: 0, count: 0, commission: 0 }); });
-    const tot = rows.reduce((a, x) => ({ carte: a.carte + x.carte, hospitalite: a.hospitalite + x.hospitalite, carteVip: a.carteVip + x.carteVip, total: a.total + x.total, commission: a.commission + x.commission }), { carte: 0, hospitalite: 0, carteVip: 0, total: 0, commission: 0 });
-    const pendTot = commissionOfSales(pending);
-    html += rows.length ? `<div class="card table-card"><div class="table-scroll"><table class="tbl"><thead><tr><th>Employé</th><th class="num">Carte</th><th class="num">Hospitalité</th><th class="num">Cartes VIP</th><th class="num">Total ventes</th><th class="num">Salaire</th><th class="num">En attente (6h)</th><th>Versement</th></tr></thead><tbody>
+    // salaires plafonnés : salaire (ventes passées à 6h) + en attente (ce soir) ≤ maximum de la semaine
+    const rows = salesBySeller(done, pending);
+    const tot = rows.reduce((a, x) => ({ carte: a.carte + x.carte, hospitalite: a.hospitalite + x.hospitalite, carteVip: a.carteVip + x.carteVip, total: a.total + x.total, commission: a.commission + x.pay.done, pending: a.pending + x.pay.pending, surplus: a.surplus + x.pay.surplus }), { carte: 0, hospitalite: 0, carteVip: 0, total: 0, commission: 0, pending: 0, surplus: 0 });
+    html += rows.length ? `<div class="card table-card"><div class="table-scroll"><table class="tbl"><thead><tr><th>Employé</th><th class="num">Carte</th><th class="num">Hospitalité</th><th class="num">Cartes VIP</th><th class="num">Total ventes</th><th class="num">Salaire</th><th class="num">En attente (6h)</th><th class="num">Au-delà du max</th><th>Versement</th></tr></thead><tbody>
       ${rows.map((x) => {
-        const p = pend.get(x.userId);
         const pv = pay[x.userId] || {};
         const seller = DB.users.find((u) => u.id === x.userId);
-        // taux de la semaine (celui des ventes) et grade actuel de l'employé
-        const tag = [ratesText(sales.filter((s) => s.userId === x.userId), userRate(x.userId)), gradeOf(seller)].filter(Boolean).join(' · ');
+        // taux de la semaine (celui des ventes), grade actuel de l'employé et salaire maximum
+        const tag = [x.taux, gradeOf(seller), x.plafond ? 'max ' + fmtMoney(x.plafond) : 'sans max'].filter(Boolean).join(' · ');
         return `<tr><td><button class="link-btn" type="button" onclick="setVenteSeller('${x.userId}')">${esc(userLabel(x.userId))}</button><small class="muted seller-rate">${esc(tag)}</small></td><td class="num">${x.carte ? fmtMoney(x.carte) : '—'}</td><td class="num">${x.hospitalite ? fmtMoney(x.hospitalite) : '—'}</td><td class="num">${x.carteVip ? fmtMoney(x.carteVip) : '—'}</td>
-          <td class="num">${fmtMoney(x.total)}</td><td class="num strong">${fmtMoney(x.commission)}</td><td class="num">${p ? '+ ' + fmtMoney(p.commission) : '—'}</td>
+          <td class="num">${fmtMoney(x.total)}</td><td class="num strong">${fmtMoney(x.pay.done)}</td><td class="num">${x.pay.pending ? '+ ' + fmtMoney(x.pay.pending) : '—'}</td>
+          <td class="num">${x.pay.surplus ? `<span title="Reste dans la compta, sans commission">${fmtMoney(x.pay.surplus)}</span>` : '—'}</td>
           <td>${pv.valide ? `<span class="badge good">Versé${pv.dateVersement ? ' le ' + fmtDateShort(pv.dateVersement) : ''}</span>` : statusBadge('À valider')}</td></tr>`;
       }).join('')}
-      <tr class="total"><td>Total</td><td class="num">${fmtMoney(tot.carte)}</td><td class="num">${fmtMoney(tot.hospitalite)}</td><td class="num">${fmtMoney(tot.carteVip)}</td><td class="num">${fmtMoney(tot.total)}</td><td class="num">${fmtMoney(tot.commission)}</td><td class="num">${pendTot ? '+ ' + fmtMoney(pendTot) : '—'}</td><td></td></tr>
+      <tr class="total"><td>Total</td><td class="num">${fmtMoney(tot.carte)}</td><td class="num">${fmtMoney(tot.hospitalite)}</td><td class="num">${fmtMoney(tot.carteVip)}</td><td class="num">${fmtMoney(tot.total)}</td><td class="num">${fmtMoney(tot.commission)}</td><td class="num">${tot.pending ? '+ ' + fmtMoney(tot.pending) : '—'}</td><td class="num">${tot.surplus ? fmtMoney(tot.surplus) : '—'}</td><td></td></tr>
     </tbody></table></div></div>
-    <p class="field-hint" style="margin-top:10px">Les salaires de ce dossier sont repris automatiquement dans la comptabilité (« Salaires versés » et charge « Salaires staff »). La direction et la comptabilité y cochent le versement.</p>`
+    <p class="field-hint" style="margin-top:10px">Les salaires de ce dossier sont repris automatiquement dans la comptabilité (« Salaires versés » et charge « Salaires staff »). La direction et la comptabilité y cochent le versement.${tot.surplus ? ` « Au-delà du max » : commission non versée, qui reste dans la compta (bénéfice), sans commission.` : ''}</p>`
     : emptyState('🧾', 'Aucune vente cette semaine', 'Les ventes notées sur les fiches apparaîtront ici dès 6h le lendemain matin.');
     return html + '</section>';
   }
@@ -357,15 +368,20 @@ function renderDossier() {
   const doneTotal = sumSales(done), pendTotal = sumSales(pending);
   const pv = pay[uid0] || {};
   const g0 = gradeOf(DB.users.find((u) => u.id === uid0));
+  // salaire plafonné au maximum de la semaine (le surplus reste à la compta)
+  const sp = sellerPay(done, pending);
+  const cap0 = sp.cap || (sales.length ? 0 : userCap(uid0));
   html += `<div class="dossier">
-    <div class="card dossier-sum"><span class="lbl">${scopeLabel() === 'me' ? 'Mon salaire de la semaine' : 'Salaire de la semaine'}</span><span class="v">${fmtMoney(commissionOfSales(done))}</span>
-      <small>${ratesText(done, userRate(uid0))} de ${fmtMoney(doneTotal)} de ventes${pendTotal ? ` · + ${fmtMoney(commissionOfSales(pending))} ce soir, ajoutés à 6h` : ''}${g0 ? ` · grade ${esc(g0.toLowerCase())}` : ''}<br>${salaryWeekLabel(from)}</small>
+    <div class="card dossier-sum"><span class="lbl">${scopeLabel() === 'me' ? 'Mon salaire de la semaine' : 'Salaire de la semaine'}</span><span class="v">${fmtMoney(sp.done)}</span>
+      <small>${ratesText(done, userRate(uid0))} de ${fmtMoney(doneTotal)} de ventes${sp.pending ? ` · + ${fmtMoney(sp.pending)} ce soir, ajoutés à 6h` : ''}${g0 ? ` · grade ${esc(g0.toLowerCase())}` : ''} · ${cap0 ? `max ${fmtMoney(cap0)} par semaine` : 'sans maximum'}${sp.surplus ? `<br><b>Max atteint</b> : ${fmtMoney(sp.surplus)} de commission au-delà restent dans la compta` : ''}<br>${salaryWeekLabel(from)}</small>
       <span>${pv.valide ? `<span class="badge good">Versé${pv.dateVersement ? ' le ' + fmtDateShort(pv.dateVersement) : ''}</span>` : statusBadge('À valider')}</span></div>
     <div class="card table-card"><div class="table-scroll"><table class="tbl compact"><thead><tr><th>Soirée</th><th class="num">Carte</th><th class="num">Hospitalité</th><th class="num">Cartes VIP</th><th class="num">Total</th><th class="num">Part ${rateTxt}</th><th>État</th></tr></thead><tbody>
       ${per.map((x) => `<tr${x.n ? '' : ' class="muted-row"'}><td><button class="link-btn" type="button" onclick="selectVenteDay('${x.d}')">${esc(fmtDate(x.d))}</button></td><td class="num">${x.carte ? fmtMoney(x.carte) : '—'}</td><td class="num">${x.hospitalite ? fmtMoney(x.hospitalite) : '—'}</td><td class="num">${x.carteVip ? fmtMoney(x.carteVip) : '—'}</td>
         <td class="num strong">${x.total ? fmtMoney(x.total) : '—'}</td><td class="num">${x.total ? fmtMoney(x.part) : '—'}</td>
         <td>${x.d > today ? '<span class="muted">À venir</span>' : x.open ? '<span class="badge warn">En cours · 6h</span>' : (x.n ? '<span class="badge good">Transféré</span>' : '<span class="muted">—</span>')}</td></tr>`).join('')}
-      <tr class="total"><td>Total de la semaine</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.carte, 0))}</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.hospitalite, 0))}</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.carteVip, 0))}</td><td class="num">${fmtMoney(doneTotal + pendTotal)}</td><td class="num">${fmtMoney(commissionOfSales(sales))}</td><td></td></tr>
+      <tr class="total"><td>Total de la semaine</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.carte, 0))}</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.hospitalite, 0))}</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.carteVip, 0))}</td><td class="num">${fmtMoney(doneTotal + pendTotal)}</td><td class="num">${fmtMoney(sp.brut)}</td><td></td></tr>
+      ${sp.surplus ? `<tr><td colspan="5">Au-delà du salaire maximum (${fmtMoney(sp.cap)}) : reste dans la compta</td><td class="num">− ${fmtMoney(sp.surplus)}</td><td></td></tr>
+      <tr class="total"><td colspan="5">Salaire de la semaine</td><td class="num">${fmtMoney(sp.salaire)}</td><td></td></tr>` : ''}
     </tbody></table></div></div>
   </div>`;
   return html + '</section>';
@@ -379,9 +395,15 @@ function exportDossierCSV() {
   const sales = salesInRange(from, to).sort((a, b) => (a.date + (a.createdAt || '')).localeCompare(b.date + (b.createdAt || '')));
   const q = (v) => `"${String(v === undefined || v === null ? '' : v).replace(/"/g, '""')}"`;
   const lines = [[q(`Pacific Bluffs — Dossier salaires`), q(`du lundi ${from} 6h au lundi ${shiftISO(from, 7)} 6h`), q(`Commission ${commissionRule()}`)].join(';'), ''];
-  lines.push(['Employé', 'Grade', 'Taux', 'Ventes carte', 'Hospitalité', 'Cartes VIP', 'Total ventes', 'Salaire', 'Dont en attente (6h)'].map(q).join(';'));
-  const pend = new Map(salesBySeller(sales.filter((s) => !isSaleTransferred(s))).map((x) => [x.userId, x.commission]));
-  salesBySeller(sales).forEach((x) => lines.push([q(userLabel(x.userId)), q(gradeOf(DB.users.find((u) => u.id === x.userId))), q(x.taux), x.carte, x.hospitalite, x.carteVip, x.total, x.commission, pend.get(x.userId) || 0].join(';')));
+  lines.push([q(`Salaire maximum par semaine : ${capRule()} ; ${SURPLUS_RULE}`)].join(';'), '');
+  lines.push(['Employé', 'Grade', 'Taux', 'Ventes carte', 'Hospitalité', 'Cartes VIP', 'Total ventes', 'Commission', 'Salaire max', 'Salaire', 'Dont en attente (6h)', 'Au-delà du max (reste à la compta)'].map(q).join(';'));
+  const rowsAll = salesBySeller(sales.filter(isSaleTransferred), sales.filter((s) => !isSaleTransferred(s)));
+  // total des ventes de la semaine (passées à 6h et en cours) pour chaque vendeur
+  rowsAll.forEach((x) => {
+    const mine = sales.filter((s) => s.userId === x.userId);
+    const by = (t) => sumSales(mine.filter((s) => saleType(s) === t));
+    lines.push([q(userLabel(x.userId)), q(gradeOf(DB.users.find((u) => u.id === x.userId))), q(x.taux), by('carte'), by('hospitalite'), by('carteVip'), sumSales(mine), x.pay.brut, x.plafond ? x.plafond : q('sans max'), x.pay.salaire, x.pay.pending, x.pay.surplus].join(';'));
+  });
   lines.push('');
   lines.push(['Soirée', 'Heure', 'Vendeur', 'Fiche', 'Article', 'Client', 'Quantité', 'Prix', 'Total', 'Taux', 'Part', 'État'].map(q).join(';'));
   sales.forEach((s) => lines.push([q(s.date), q(s.heure), q(userLabel(s.userId)), q(saleTypeInfo(saleType(s)).label + (saleType(s) === 'hospitalite' ? ' — ' + hospKind(s) : '')), q(s.nom), q(saleClients(s)), Number(s.qty) || 0, Number(s.prix) || 0, saleTotal(s), q(pctOf(saleRate(s))), saleCommission(s), q(isSaleTransferred(s) ? 'Transféré' : 'En cours')].join(';')));
