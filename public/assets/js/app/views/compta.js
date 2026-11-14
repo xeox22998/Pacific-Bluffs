@@ -77,7 +77,7 @@ function renderComptabilite() {
   </div></section>`;
   // Salaires : commissions des fiches de ventes + lignes saisies à la main
   html += `<section class="section">${sectionHead('Salaires versés', weekCommissionRows(week).length + (week.salaries || []).length, editStruct ? `<button class="btn btn-xs" type="button" onclick="addSalaryRow('${week.id}')">${icon('plus', 'sm')}Ligne</button>` : '')}
-    <p class="field-hint" style="margin:-6px 0 12px">Chaque vendeur touche ${commissionRule()}, selon le grade choisi par la direction. Ces lignes viennent du dossier salaires de l'onglet Ventes : elles sont calculées toutes seules et comptées dans la charge « Salaires staff ». Ajoutez une ligne pour une prime ou un autre salaire.</p>
+    <p class="field-hint" style="margin:-6px 0 12px">Chaque vendeur touche une part de ses ventes : ${commissionRule()}. Ces lignes viennent du dossier salaires de l'onglet Ventes : elles sont calculées toutes seules et comptées dans la charge « Salaires staff ». Ajoutez une ligne pour une prime ou un autre salaire.</p>
     ${renderSalaryTable(week, editStruct)}</section>`;
   // Ventes de la carte
   html += `<section class="section">${sectionHead('Ventes de la carte — récap de la semaine', null, `<span class="badge nodot">${comptaSales(week, 'carte').length ? 'calculé' : 'informatif'}</span>`)}${renderMenuSales(week, canFill)}</section>`;

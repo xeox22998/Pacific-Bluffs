@@ -65,7 +65,7 @@ function renderDashboard() {
   if (canFillFinance()) {
     const mine = allSales().filter((s) => s.date === serviceDay() && s.userId === u.id);
     const t = sumSales(mine);
-    html += `<button class="hint hint-btn" type="button" onclick="openVentesDay(serviceDay(),null)">${icon('receipt', 'sm')}<span><b>${mine.length ? `Ce soir : ${fmtMoney(t)} de ventes, votre part ${ratesText(mine)} : ${fmtMoney(commissionOfSales(mine))}.` : 'Noter une vente'}</b> ${mine.length ? 'Cliquez pour ouvrir vos fiches de ventes.' : `Carte, hospitalité (entrées, cocons) ou carte VIP : notez chaque vente dans l'onglet Ventes, vous touchez ${pctOf(gradeRate(u))}.`}</span>${icon('arrow', 'sm')}</button>`;
+    html += `<button class="hint hint-btn" type="button" onclick="openVentesDay(serviceDay(),null)">${icon('receipt', 'sm')}<span><b>${mine.length ? `Ce soir : ${fmtMoney(t)} de ventes, votre part ${ratesText(mine)} : ${fmtMoney(commissionOfSales(mine))}.` : 'Noter une vente'}</b> ${mine.length ? 'Cliquez pour ouvrir vos fiches de ventes.' : `Carte, hospitalité (entrées, cocons) ou carte VIP : notez chaque vente dans l'onglet Ventes, vous touchez ${pctOf(sellerRate(u))}.`}</span>${icon('arrow', 'sm')}</button>`;
   }
 
   if (isMgmt() || canSeeFinance()) {
@@ -141,7 +141,7 @@ function renderDashboard() {
       <section>${sectionHead('Mon prochain service')}${next ? renderServiceCard(next.event, next.assignment, u.id) : emptyState('📭', 'Aucun service prévu', 'Prenez un poste depuis le Programme pour apparaître ici.')}</section>
       <section>${sectionHead('Mes chiffres')}<div class="stats-row stagger" style="grid-template-columns:1fr 1fr">
         ${statTile('Mes ventes de la semaine', 'receipt', myDone + myPend, { money: true, foot: salaryWeekLabel(mon) })}
-        ${statTile('Mon salaire de la semaine', 'wallet', commissionOfSales(doneList), { money: true, cls: 'dark', foot: myPend ? `+ ${fmtMoney(commissionOfSales(pendList))} à 6h` : `${pctOf(gradeRate(u))} de mes ventes${gradeOf(u) ? ` (${esc(gradeOf(u).toLowerCase())})` : ''}` })}
+        ${statTile('Mon salaire de la semaine', 'wallet', commissionOfSales(doneList), { money: true, cls: 'dark', foot: myPend ? `+ ${fmtMoney(commissionOfSales(pendList))} à 6h` : `${pctOf(sellerRate(u))} de mes ventes${gradeOf(u) ? ` (${esc(gradeOf(u).toLowerCase())})` : ''}` })}
         ${statTile('Services', 'calendar', myAtt.length)}
         ${statTile('Heures effectuées', 'clock', hoursDec(totalMin), { suffix: ' h' })}
         ${statTile('Présences validées', 'checkCircle', myAtt.filter((a) => a.statut === 'Validé').length)}

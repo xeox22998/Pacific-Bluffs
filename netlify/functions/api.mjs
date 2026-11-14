@@ -32,11 +32,21 @@ const SUB_ROLES = {
 };
 const validSubRole = (role, v) => ((SUB_ROLES[role] || []).includes(v) ? v : '');
 // Grades des employés, attribués par la direction seulement (même liste que GRADES dans public/assets/js/app/data.js) :
-// taux de commission sur les ventes. BASE_RATE : autres rôles et employé sans grade (= COMMISSION_VENTES de club-data.js).
+// taux de commission sur les ventes. ROLE_RATES : managers, comptabilité et direction, taux fixe (même liste que
+// ROLE_RATES dans data.js). BASE_RATE : employé sans grade (= COMMISSION_VENTES de club-data.js).
 const GRADES = { 'Recrue': 0.25, 'Non qualifié': 0.25, 'Qualifié': 0.35 };
+const ROLE_RATES = { MANAGER: 0.45, SECRETAIRE: 0.45, DIRECTION: 0.45 };
 const BASE_RATE = 0.25;
 const validGrade = (role, v) => (role === 'EMPLOYE' && typeof v === 'string' && Object.hasOwn(GRADES, v) ? v : '');
-const rateOf = (u) => { const g = u && validGrade(u.role, u.grade); return g ? GRADES[g] : BASE_RATE; };
+const roleRate = (role) => (typeof role === 'string' && Object.hasOwn(ROLE_RATES, role) ? ROLE_RATES[role] : 0);
+const rateOf = (u) => {
+  if (u && roleRate(u.role)) return roleRate(u.role);
+  const g = u && validGrade(u.role, u.grade);
+  return g ? GRADES[g] : BASE_RATE;
+};
+// Encadrement à 45 % (14/11/2026, « même ce qui est déjà marqué ») : les ventes déjà notées par les managers,
+// la comptabilité et la direction passent aussi à 45 %, une seule fois (meta.tauxV). Ensuite, chaque vente garde son taux.
+const RATES_VERSION = 2;
 // joursSansSoiree : jours dont la soirée a été retirée à la main (le planning n'y remet pas de soirée classique)
 const COLS = ['users', 'events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -207,6 +217,23 @@ async function addLog(store, userId, action, objet) {
   const logs = await col(store, 'activityLogs');
   logs.unshift({ id: 'log_' + randomHex(6), userId, action, objet, date: todayParis(), heure: nowParis() });
   await putCol(store, 'activityLogs', logs.slice(0, 500));
+}
+/* Ventes déjà notées par l'encadrement → taux du rôle (45 %), une seule fois (voir RATES_VERSION) */
+async function upgradeRates(store) {
+  const meta = await readMeta(store);
+  if ((Number(meta.tauxV) || 0) >= RATES_VERSION) return;
+  const [users, sales] = await Promise.all([col(store, 'users'), col(store, 'barSales')]);
+  const roleOf = new Map(users.map((u) => [u && u.id, u && u.role]));
+  let n = 0;
+  for (const s of sales) {
+    const r = s ? roleRate(roleOf.get(s.userId)) : 0;
+    if (r && s.taux !== r) { s.taux = r; n++; }
+  }
+  if (n) {
+    await putCol(store, 'barSales', sales);
+    await addLog(store, null, 'Commissions mises à jour', `${n} vente(s) de l'encadrement passée(s) à 45 %`);
+  }
+  await bump(store, { tauxV: RATES_VERSION });
 }
 async function loadAll(store) {
   const [users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, joursSansSoiree, postes, menu, couleurs, cartes, cocons, meta] = await Promise.all([
@@ -381,6 +408,7 @@ function weekForEmploye(w, u) {
 }
 
 async function routeData(store, a) {
+  await upgradeRates(store);
   const all = await loadAll(store);
   const role = a.user.role;
   const employe = role === 'EMPLOYE';
@@ -714,8 +742,11 @@ async function routeBootstrap(req, store, a) {
 
 async function routeExport(store, a) {
   if (a.user.role !== 'DIRECTION') return fail(403, 'Réservé à la direction.');
+  await upgradeRates(store);
   const all = await loadAll(store);
+  const tauxV = Number(all.meta.tauxV) || 0; // la sauvegarde dit si les taux de l'encadrement sont déjà passés à 45 %
   delete all.meta;
+  all.tauxV = tauxV;
   return json({ pacific: 'sauvegarde', exportedAt: new Date().toISOString(), data: all });
 }
 
@@ -751,7 +782,8 @@ async function routeImport(req, store, a) {
   }
   await store.setJSON('sessions', { [a.token]: { userId: me.id, exp: Date.now() + SESSION_MS } });
   await addLog(store, me.id, 'Sauvegarde importée', `${users.length} compte(s), ${d.accountingWeeks.length} semaine(s)`);
-  const meta = await bump(store, { initialized: true });
+  // ancienne sauvegarde (avant l'encadrement à 45 %) : ses ventes seront mises à jour au prochain chargement
+  const meta = await bump(store, { initialized: true, tauxV: Number(d.tauxV) || 0 });
   return json({ ok: true, version: meta.version });
 }
 

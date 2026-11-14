@@ -27,8 +27,12 @@ function subRoleOf(u) { return u && subRolesOf(u.role).includes(u.sousRole) ? u.
 /* Rôle affiché : « Manager · Bar », « Employé · Barman / Barmaid »… */
 function roleLabel(u) { const s = subRoleOf(u); return (ROLE_LABEL[u.role] || '') + (s ? ' · ' + s : ''); }
 /* Grades des employés (à côté du sous-rôle, attribués par la direction seulement) : ils fixent la
-   commission sur les ventes. Les autres rôles (et un employé sans grade) touchent COMMISSION_RATE.
-   Même liste dans netlify/functions/api.mjs (GRADES), revérifiée par le serveur. */
+   commission sur les ventes ; un employé sans grade touche COMMISSION_RATE. Managers, comptabilité et
+   direction ont un taux fixe (ROLE_RATES). Mêmes listes dans netlify/functions/api.mjs (GRADES,
+   ROLE_RATES), revérifiées par le serveur. */
+const ROLE_RATES = { [ROLES.MANAGER]: 0.45, [ROLES.SECRETAIRE]: 0.45, [ROLES.DIRECTION]: 0.45 };
+const ROLE_RATE_NAMES = { [ROLES.MANAGER]: 'les managers', [ROLES.SECRETAIRE]: 'la comptabilité', [ROLES.DIRECTION]: 'la direction' };
+function roleRate(role) { return Object.prototype.hasOwnProperty.call(ROLE_RATES, role) ? ROLE_RATES[role] : 0; }
 const GRADES = [
   { id: 'Recrue', taux: 0.25 },
   { id: 'Non qualifié', taux: 0.25 },
@@ -168,10 +172,14 @@ function defaultExpenseRows() { return EXPENSE_CATS.map((c) => ({ categorie: c, 
    journée se ferme : ses ventes passent toutes seules dans la comptabilité (cases « Bar &
    boissons », « Entrées soirées », « Hébergements », « Cartes membres ») et dans le dossier salaires.
    Chaque vendeur touche une part de chaque vente : c'est son salaire de la semaine, du lundi 6h au
-   lundi 6h suivant (= les journées de service du lundi au dimanche). Part = le taux de son grade
-   (GRADES : 35 % employé qualifié, 25 % non qualifié et recrue), COMMISSION_RATE (25 %) sinon.
-   Le taux est gardé sur la vente (champ taux, fixé par le serveur) : un changement de grade compte
-   pour les ventes notées ensuite ; les anciennes ventes sans taux restent à COMMISSION_RATE.
+   lundi 6h suivant (= les journées de service du lundi au dimanche). Part = 45 % pour les managers,
+   la comptabilité et la direction (ROLE_RATES), sinon le taux du grade de l'employé (GRADES : 35 %
+   qualifié, 25 % non qualifié et recrue), COMMISSION_RATE (25 %) pour un employé sans grade.
+   Le taux est gardé sur la vente (champ taux, fixé par le serveur) : un changement de grade ou de rôle
+   compte pour les ventes notées ensuite ; les anciennes ventes sans taux restent à COMMISSION_RATE.
+   Exception (14/11/2026) : le passage à 45 % a été appliqué aussi aux ventes déjà notées par les
+   managers, la comptabilité et la direction, une seule fois (upgradeTaux ici en mode local,
+   upgradeRates dans api.mjs en base partagée).
    ===================================================================== */
 const SALE_TYPES = [
   { id: 'carte', label: 'Carte', long: 'Fiche des ventes de la carte', emoji: '🍹', compta: 'Bar & boissons' },
@@ -207,26 +215,60 @@ function sumSales(list) { return list.reduce((t, s) => t + saleTotal(s), 0); }
 /* Commissions : taux du grade du vendeur, gardé sur chaque vente */
 const round2 = (n) => Math.round(n * 100) / 100;
 function pctOf(rate) { return Math.round(rate * 100) + ' %'; }
-function gradeRate(u) { const g = GRADES.find((x) => x.id === gradeOf(u)); return g ? g.taux : COMMISSION_RATE; }
-function userRate(userId) { return gradeRate((DB && DB.users || []).find((u) => u.id === userId)); }
+/* Taux d'un vendeur aujourd'hui : rôle (45 % managers, comptabilité, direction), sinon grade de l'employé */
+function sellerRate(u) {
+  const r = u ? roleRate(u.role) : 0;
+  if (r) return r;
+  const g = GRADES.find((x) => x.id === gradeOf(u));
+  return g ? g.taux : COMMISSION_RATE;
+}
+function userRate(userId) { return sellerRate((DB && DB.users || []).find((u) => u.id === userId)); }
 function saleRate(s) { const t = Number(s && s.taux); return t > 0 && t < 1 ? t : COMMISSION_RATE; }
 function saleCommission(s) { return round2(saleTotal(s) * saleRate(s)); }
 function commissionOfSales(list) { return round2(list.reduce((t, s) => t + saleTotal(s) * saleRate(s), 0)); }
 /* Taux d'une liste de ventes : « 35 % », « 25 à 35 % » (taux mélangés), ou le taux par défaut si elle est vide */
 function ratesText(list, fallback) {
   const r = [...new Set(list.map(saleRate))].sort((a, b) => a - b);
-  if (!r.length) return pctOf(fallback === undefined ? COMMISSION_RATE : fallback);
+  if (!r.length) return typeof fallback === 'string' ? fallback : pctOf(fallback === undefined ? COMMISSION_RATE : fallback);
   return r.length === 1 ? pctOf(r[0]) : `${Math.round(r[0] * 100)} à ${pctOf(r[r.length - 1])}`;
 }
-/* Taux des grades : « recrue et non qualifié 25 %, qualifié 35 % » */
-function gradeRule() {
+/* Fourchette de tous les taux possibles : « 25 à 45 % » (tout le staff, avant la première vente) */
+function allRatesRange() { const t = rateGroups().map((x) => x.taux); return `${Math.round(Math.min(...t) * 100)} à ${pctOf(Math.max(...t))}`; }
+const joinFr = (list, last) => (list.length > 1 ? list.slice(0, -1).join(', ') + last + list[list.length - 1] : list[0] || '');
+/* Taux groupés du plus haut au plus bas : [{ taux, roles: [...], grades: [...] }] */
+function rateGroups() {
   const by = new Map();
-  GRADES.forEach((g) => by.set(g.taux, [...(by.get(g.taux) || []), g.id.toLowerCase()]));
-  return [...by].map(([t, ids]) => `${ids.join(' et ')} ${pctOf(t)}`).join(', ');
+  const add = (taux, k, v) => { if (!by.has(taux)) by.set(taux, { taux, roles: [], grades: [] }); by.get(taux)[k].push(v); };
+  Object.keys(ROLE_RATES).forEach((r) => add(ROLE_RATES[r], 'roles', r));
+  GRADES.forEach((g) => add(g.taux, 'grades', g.id));
+  const last = (a, b) => (a === 'Recrue') - (b === 'Recrue'); // « non qualifié ou recrue »
+  return [...by.values()].map((x) => ({ ...x, grades: x.grades.sort(last) })).sort((a, b) => b.taux - a.taux);
 }
-/* Règle affichée : « 25 % de ses ventes (35 % pour un employé qualifié) » */
-function upperGradesText() { return GRADES.filter((g) => g.taux !== COMMISSION_RATE).map((g) => `${pctOf(g.taux)} pour un employé ${g.id.toLowerCase()}`).join(', '); }
-function commissionRule() { const up = upperGradesText(); return `${pctOf(COMMISSION_RATE)} de ses ventes${up ? ` (${up})` : ''}`; }
+/* Règle complète : « 45 % pour les managers, la comptabilité et la direction ; 35 % pour un employé qualifié ;
+   25 % pour un employé non qualifié ou une recrue » */
+function commissionRule() {
+  return rateGroups().map((x) => {
+    const who = [joinFr(x.roles.map((r) => ROLE_RATE_NAMES[r]), ' et '),
+      joinFr(x.grades.map((g) => (g === 'Recrue' ? 'une recrue' : 'un employé ' + g.toLowerCase())), ' ou ')].filter(Boolean).join(', ');
+    return `${pctOf(x.taux)} pour ${who}`;
+  }).join(' ; ');
+}
+/* Version courte (badges) : « 45 % encadrement · 35 % qualifié · 25 % non qualifié / recrue » */
+function commissionRuleShort() {
+  return rateGroups().map((x) => `${pctOf(x.taux)} ${[x.roles.length ? 'encadrement' : '', x.grades.map((g) => g.toLowerCase()).join(' / ')].filter(Boolean).join(', ')}`).join(' · ');
+}
+/* Managers, comptabilité et direction passent à 45 % (14/11/2026) : leurs ventes déjà notées aussi, une seule fois.
+   Mode local seulement : en base partagée, c'est le serveur (upgradeRates dans api.mjs). */
+const TAUX_VERSION = 2;
+function upgradeTaux() {
+  if (!DB || isShared() || (Number(DB.tauxV) || 0) >= TAUX_VERSION) return;
+  const roleOf = new Map((DB.users || []).map((u) => [u && u.id, u && u.role]));
+  let n = 0;
+  (DB.barSales || []).forEach((s) => { const r = s ? roleRate(roleOf.get(s.userId)) : 0; if (r && s.taux !== r) { s.taux = r; n++; } });
+  DB.tauxV = TAUX_VERSION;
+  if (n) logActivity('Commissions mises à jour', `${n} vente(s) de l'encadrement passée(s) à ${pctOf(ROLE_RATES[ROLES.DIRECTION])}`);
+  saveSoon();
+}
 /* Une journée est transférée en comptabilité dès 6h le lendemain (les anciennes ventes sans date le sont) */
 function isDayTransferred(date) { return !date || date < serviceDay(); }
 function isSaleTransferred(s) { return isDayTransferred(s.date); }
@@ -285,7 +327,7 @@ function salesBySeller(list) {
     x.raw += t * saleRate(s); x.list.push(s);
     map.set(s.userId, x);
   });
-  // commission : part de chaque vente au taux du vendeur ; taux : « 35 % » (ou « 25 à 35 % » après un changement de grade)
+  // commission : part de chaque vente au taux du vendeur ; taux : « 45 % » (ou « 25 à 35 % » après un changement de grade ou de rôle)
   return [...map.values()].map(({ raw, list, ...x }) => ({ ...x, commission: round2(raw), taux: ratesText(list) })).sort((a, b) => b.total - a.total);
 }
 function weekCommissionRows(week) { return salesBySeller(comptaSales(week)); }

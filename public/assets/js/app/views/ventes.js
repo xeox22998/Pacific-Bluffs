@@ -6,8 +6,9 @@
    - Journée de service de 6h à 6h (heure de Paris). À 6h du matin, les ventes
      de la soirée passent automatiquement dans la comptabilité (Bar & boissons,
      Entrées soirées, Hébergements, Cartes membres) et dans le dossier salaires.
-   - Salaire : une part de chaque vente selon le grade du vendeur (35 % employé
-     qualifié, 25 % non qualifié, recrue et autres rôles : GRADES dans data.js),
+   - Salaire : une part de chaque vente selon le vendeur (45 % managers,
+     comptabilité et direction ; employés selon leur grade : 35 % qualifié,
+     25 % non qualifié et recrue — ROLE_RATES et GRADES dans data.js),
      gardée sur la vente (taux), calculé du lundi 6h au lundi 6h suivant
      (soirées du lundi au dimanche), versé en fin de semaine.
    Droits (revérifiés par le serveur) : chacun n'ajoute et ne retire que SES
@@ -74,14 +75,14 @@ function renderVentes() {
   const scope = scopeLabel();
   const mine = scope === 'me';
   const who = scope === 'one' ? userLabel(VENTE_SELLER) : '';
-  const myRate = gradeRate(CURRENT_USER);
-  const scopeRate = scope === 'all' ? COMMISSION_RATE : userRate(mine ? CURRENT_USER.id : VENTE_SELLER); // taux affiché quand il n'y a pas encore de vente
+  const myRate = sellerRate(CURRENT_USER);
+  const scopeRate = scope === 'all' ? allRatesRange() : userRate(mine ? CURRENT_USER.id : VENTE_SELLER); // taux affiché quand il n'y a pas encore de vente
 
   const actions = canCorrectSales() ? `<button class="btn btn-sm" type="button" onclick="exportDossierCSV()">${icon('download', 'sm')}Export du dossier</button>` : '';
   let html = pageHead('Ventes', mine ? 'Mes fiches de ventes' : (who ? `Ventes de ${esc(who)}` : 'Fiches de ventes'),
     `Notez chaque vente au moment où vous la faites : elle est enregistrée tout de suite, soirée par soirée. À <b>6h du matin</b>, les ventes de la soirée passent automatiquement ${navAllowed('comptabilite') ? 'dans la comptabilité et ' : ''}dans le dossier salaires. ${canSeeAllSales()
-      ? `Chaque vendeur touche <b>${commissionRule()}</b> : c'est son salaire de la semaine`
-      : `Vous touchez <b>${pctOf(myRate)}</b> de vos ventes${gradeOf(CURRENT_USER) ? ` (grade ${esc(gradeOf(CURRENT_USER).toLowerCase())})` : ''} : c'est votre salaire de la semaine`}, calculé <b>du lundi 6h au lundi 6h</b>.`, actions);
+      ? `Chaque vendeur touche une part de ses ventes (<b>${commissionRule()}</b>) : c'est son salaire de la semaine`
+      : `Vous touchez <b>${pctOf(myRate)}</b> de vos ventes${gradeOf(CURRENT_USER) ? ` (grade ${esc(gradeOf(CURRENT_USER).toLowerCase())})` : ''} : c'est votre salaire de la semaine`}, calculé <b>du lundi 6h au lundi 6h</b>.${canSeeAllSales() && canFillFinance() ? ` Votre part : <b>${pctOf(myRate)}</b>.` : ''}`, actions);
 
   if (!canFillFinance()) html += `<div class="hint">${icon('eye', 'sm')}<span>Consultation en lecture seule, à titre de contrôle fiscal.</span></div>`;
 
@@ -159,7 +160,7 @@ function renderSaleSheet(list) {
   }
   const rows = list.slice().sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
   // part de chaque vente : un seul taux → dans l'en-tête, des taux différents (grades) → sur chaque ligne
-  const fallback = scopeLabel() === 'all' ? COMMISSION_RATE : userRate(scopeLabel() === 'me' ? CURRENT_USER.id : VENTE_SELLER);
+  const fallback = scopeLabel() === 'all' ? allRatesRange() : userRate(scopeLabel() === 'me' ? CURRENT_USER.id : VENTE_SELLER);
   const mixed = new Set(rows.map(saleRate)).size > 1;
 
   let form = '';
@@ -316,10 +317,10 @@ function renderDossier() {
   const pay = (acc && acc.commissionPay) || {};
   const all = scopeLabel() === 'all';
   const uid0 = scopeLabel() === 'me' ? CURRENT_USER.id : VENTE_SELLER;
-  const rateTxt = all ? `${pctOf(COMMISSION_RATE)} · ${GRADES.filter((g) => g.taux !== COMMISSION_RATE).map((g) => `${pctOf(g.taux)} ${g.id.toLowerCase()}`).join(' · ')}` : ratesText(sales, userRate(uid0));
+  const rateTxt = all ? commissionRuleShort() : ratesText(sales, userRate(uid0));
 
   let html = `<section class="section">${sectionHead('Dossier salaires', null, `<span class="badge nodot">${rateTxt}${all ? '' : ' de chaque vente'}</span>`)}
-    <p class="field-hint" style="margin:-6px 0 12px">Les fiches s'enregistrent chaque soirée et remplissent le dossier à 6h. Salaire de la semaine = ${all ? `la part de chaque vente (${pctOf(COMMISSION_RATE)}${upperGradesText() ? ', ' + upperGradesText() : ''})` : `${rateTxt} des ventes`} <b>du lundi 6h au lundi 6h</b> suivant (${salaryWeekLabel(from)}), versé en fin de semaine${acc && navAllowed('comptabilite') ? ` (comptabilité semaine ${acc.numero})` : ''}.</p>
+    <p class="field-hint" style="margin:-6px 0 12px">Les fiches s'enregistrent chaque soirée et remplissent le dossier à 6h. Salaire de la semaine = ${all ? `la part de chaque vente (${commissionRule()})` : `${rateTxt} des ventes`} <b>du lundi 6h au lundi 6h</b> suivant (${salaryWeekLabel(from)}), versé en fin de semaine${acc && navAllowed('comptabilite') ? ` (comptabilité semaine ${acc.numero})` : ''}.</p>
     <div class="pill-row" role="tablist" aria-label="Semaines du dossier">${mondays.map((m) => `<button class="pill plain ${m === DOSSIER_WEEK ? 'is-active' : ''}" type="button" role="tab" aria-selected="${m === DOSSIER_WEEK}" onclick="selectDossierWeek('${m}')">${m === curMon ? 'Cette semaine' : 'Sem. du ' + fmtDateShort(m).slice(0, 5)}</button>`).join('')}</div>`;
 
   if (all) {
