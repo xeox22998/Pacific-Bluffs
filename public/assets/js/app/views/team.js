@@ -458,6 +458,7 @@ function importBackup(input) {
       CURRENT_USER = again;
       logActivity('Sauvegarde importée', file.name);
       upgradeTaux(); // ancienne sauvegarde : ventes de l'encadrement à 35 % et salaires maximums
+      upgradeAvantages(); // … et cartes VIP reprises dans le topo
       toast('Sauvegarde importée.', 'success'); renderShell(); renderPage(true);
     }, 'Importer');
   };

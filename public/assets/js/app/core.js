@@ -18,7 +18,7 @@ function storageGet(key) { try { return localStorage.getItem(key); } catch (e) {
 function storageSet(key, value) { try { localStorage.setItem(key, value); return true; } catch (e) { return false; } }
 
 function normalizeDB() {
-  ['users', 'postes', 'events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree', 'notifications'].forEach((k) => {
+  ['users', 'postes', 'events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree', 'avantages', 'notifications'].forEach((k) => {
     if (!Array.isArray(DB[k])) DB[k] = [];
   });
   if (!Array.isArray(DB.menu) || !DB.menu.length) DB.menu = null;
@@ -53,7 +53,7 @@ function saveSoon() {
 }
 
 /* ---------------- Base partagée : synchronisation ---------------- */
-const SYNC_COLS = ['users', 'events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree'];
+const SYNC_COLS = ['users', 'events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree', 'avantages'];
 const SYNC_WHOLE = ['postes', 'menu', 'couleurs', 'cartes', 'cocons'];
 let SNAP = null;
 let SERVER_VERSION = 0;
@@ -100,6 +100,7 @@ async function syncNow() {
   try {
     const r = await ClubApi.req('sync', { body: { changes } });
     SERVER_VERSION = r.version;
+    if (r.derived) applyDerived(r.derived);
     if (r.denied && r.denied.length) {
       toast("Certaines modifications ont été refusées : vos droits ne le permettent pas.", 'error');
       await loadRemote();
@@ -114,6 +115,29 @@ async function syncNow() {
     syncing = false;
     if (syncAgain) { syncAgain = false; syncNow(); }
   }
+}
+/* Changements faits par le serveur pendant la synchro (ex. : carte VIP vendue → avantage du client dans le topo) :
+   appliqués ici et dans la photo du serveur, pour ne pas être renvoyés */
+function applyDerived(derived) {
+  let touched = false;
+  Object.entries(derived || {}).forEach(([c, d]) => {
+    if (!SYNC_COLS.includes(c) || !d) return;
+    DB[c] = DB[c] || [];
+    (Array.isArray(d.upsert) ? d.upsert : []).forEach((r) => {
+      if (!r || !r.id) return;
+      const i = DB[c].findIndex((x) => x && x.id === r.id);
+      if (i < 0) DB[c].push(r); else DB[c][i] = r;
+      if (SNAP && SNAP[c]) SNAP[c].set(r.id, JSON.stringify(r));
+      touched = true;
+    });
+    const rm = new Set(Array.isArray(d.remove) ? d.remove : []);
+    if (rm.size) {
+      DB[c] = DB[c].filter((x) => !(x && rm.has(x.id)));
+      if (SNAP && SNAP[c]) rm.forEach((id) => SNAP[c].delete(id));
+      touched = true;
+    }
+  });
+  if (touched && CURRENT_PAGE === 'topo' && typeof renderPage === 'function' && !(typeof userIsBusy === 'function' && userIsBusy())) renderPage(false);
 }
 async function loadRemote() {
   const r = await ClubApi.req('data');
@@ -260,6 +284,7 @@ const ICONS = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/>',
   receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+  gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8M12 8v13M12 8S10.5 3 8 3a2.5 2.5 0 0 0 0 5M12 8s1.5-5 4-5a2.5 2.5 0 0 1 0 5"/>',
   palette: '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.3A4.7 4.7 0 0 0 21 9.7C21 5.9 17 3 12 3z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="15" cy="7" r="1.2"/>',
 };
 function icon(name, cls) { return `<svg class="i${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`; }

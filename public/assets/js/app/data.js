@@ -56,6 +56,8 @@ const NAV_ITEMS = [
   { key: 'programme',      label: 'Programme',       icon: 'mic',         roles: [ROLES.EMPLOYE, ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
   { key: 'presences',      label: 'Présences',       icon: 'checkCircle', roles: [ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
   { key: 'ventes',         label: 'Ventes',          icon: 'receipt',     roles: '*' },
+  // topo (15/11/2026) : qui a quoi d'activé (cartes VIP, récompenses), lu par tous, tenu par l'encadrement
+  { key: 'topo',           label: 'Topo',            icon: 'gift',        roles: '*' },
   { key: 'privatisations', label: 'Privatisations',  icon: 'party',       roles: [ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
   { key: 'comptabilite',   label: 'Comptabilité',    icon: 'wallet',      roles: [ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION, ROLES.GOUVERNEMENT] },
   { key: 'carte',          label: 'La carte',        icon: 'glass',       roles: [ROLES.EMPLOYE, ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION] },
@@ -160,6 +162,107 @@ function tierName(key) {
 }
 /* Cocons paradisiaques en vigueur (chambres pour 2 vendues sur la fiche hospitalité) */
 function coconsList() { return (DB && Array.isArray(DB.cocons)) ? DB.cocons : CLUB.COCONS; }
+
+/* =====================================================================
+   TOPO (onglet « Topo », voir views/topo.js) : qui a quoi d'activé, pour apporter à chaque client
+   les services adaptés. Un avantage = un enregistrement de DB.avantages :
+   { id, type: 'vip' | 'escapade' | 'sejour' | 'bon' | 'soiree', origine: 'recompense' | 'vente' | 'compta',
+     beneficiaire, beneficiaire2 (escapade / séjour : chambre pour 2), carte + duree ('semaine' | 'mois') pour
+     une carte VIP, date (obtenu le), dateDebut / dateFin (validité ; séjour, escapade, soirée : date prévue),
+     motif, note, utilise, par (compte qui l'a noté), saleId (carte vendue), createdAt }
+   - « recompense » : offerte, notée par l'encadrement sur la fiche Récompenses de l'onglet Ventes :
+     ni commission, ni recette (rien en comptabilité) ;
+   - « vente » : carte VIP vendue sur la fiche Cartes VIP (ajoutée par le serveur, ou ici en mode local) ;
+   - « compta » : ancien membre noté en comptabilité, repris une fois (la compta n'affiche plus la liste).
+   Tout le staff lit le topo ; managers, comptabilité et direction l'ajoutent, le modifient et le retirent
+   (revérifié par le serveur, cleanAvantage dans api.mjs).
+   ===================================================================== */
+const AV_TYPES = [
+  { id: 'vip', label: 'Carte VIP', plural: 'Cartes VIP', emoji: '💳' },
+  { id: 'escapade', label: 'Escapade enchantée', plural: 'Escapades enchantées', emoji: '✨' },
+  { id: 'sejour', label: 'Séjour paradisiaque', plural: 'Séjours paradisiaques', emoji: '🌴' },
+  { id: 'bon', label: 'Bon de réduction 25 %', plural: 'Bons de réduction 25 %', emoji: '🏷️' },
+  { id: 'soiree', label: 'Soirée privée', plural: 'Soirées privées', emoji: '🥂' },
+];
+/* Récompenses proposées sur la fiche Récompenses (carte VIP : 1 mois ou 1 semaine, au choix parmi les 3 cartes) */
+const REWARD_CHOICES = [
+  { id: 'vip-mois', type: 'vip', duree: 'mois', label: 'Carte VIP — 1 mois' },
+  { id: 'vip-semaine', type: 'vip', duree: 'semaine', label: 'Carte VIP — 1 semaine' },
+  { id: 'escapade', type: 'escapade', label: 'Escapade enchantée' },
+  { id: 'sejour', type: 'sejour', label: 'Séjour paradisiaque' },
+  { id: 'bon', type: 'bon', label: 'Bon de réduction 25 %' },
+  { id: 'soiree', type: 'soiree', label: 'Soirée privée' },
+];
+const AV_ORIGINE_LABEL = { recompense: 'Offert', vente: 'Carte achetée', compta: 'Carte notée en compta' };
+function avType(id) { return AV_TYPES.find((t) => t.id === id) || AV_TYPES[0]; }
+function avDuo(type) { return type === 'escapade' || type === 'sejour'; } // chambre pour 2 : deux noms
+/* Le topo se tient par l'encadrement ; tout le monde le lit */
+function canEditTopo() { return !!CURRENT_USER && [ROLES.MANAGER, ROLES.SECRETAIRE, ROLES.DIRECTION].includes(CURRENT_USER.role); }
+/* « Carte Gold · 1 mois », « Séjour paradisiaque »… */
+function avLabel(a) { return a.type === 'vip' ? `Carte ${tierName(a.carte)} · ${a.duree === 'mois' ? '1 mois' : '1 semaine'}` : avType(a.type).label; }
+/* Fin d'une carte VIP : 7 jours (comme une carte vendue) ou un mois (du 15/11 au 14/12) */
+function vipEnd(start, duree) {
+  if (!start) return '';
+  if (duree !== 'mois') return shiftISO(start, 6);
+  const d = new Date(start + 'T00:00:00');
+  const day = d.getDate();
+  d.setDate(1); d.setMonth(d.getMonth() + 1);
+  d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  d.setDate(d.getDate() - 1);
+  return isoDate(d.getFullYear(), d.getMonth() + 1, d.getDate());
+}
+/* État d'un avantage à la journée de service en cours :
+   'actif' (utilisable maintenant), 'prevu' (à une date à venir), 'utilise', 'expire' */
+function avStatus(a, today) {
+  today = today || serviceDay();
+  if (a.utilise) return 'utilise';
+  if (a.dateFin && a.dateFin < today) return 'expire';
+  if (a.dateDebut && a.dateDebut > today) return 'prevu';
+  if (a.type !== 'vip' && a.dateDebut && !a.dateFin && a.dateDebut < today) return 'expire'; // séjour / soirée passés sans être marqués
+  return 'actif';
+}
+const AV_STATUS = {
+  actif: { label: 'Actif', cls: 'good' }, prevu: { label: 'Prévu', cls: 'sun' },
+  utilise: { label: 'Utilisé', cls: '' }, expire: { label: 'Expiré', cls: 'bad' },
+};
+/* Validité lisible : « jusqu'au 21/11/2026 », « le 18/11/2026 », « à utiliser » */
+function avWhen(a) {
+  if (a.type === 'vip') return a.dateFin ? `du ${fmtDateShort(a.dateDebut)} au ${fmtDateShort(a.dateFin)}` : 'durée non renseignée';
+  if (a.dateDebut && a.dateFin && a.dateFin !== a.dateDebut) return `du ${fmtDateShort(a.dateDebut)} au ${fmtDateShort(a.dateFin)}`;
+  if (a.dateDebut) return `le ${fmtDateShort(a.dateDebut)}`;
+  return a.dateFin ? `à utiliser avant le ${fmtDateShort(a.dateFin)}` : 'à utiliser, sans date limite';
+}
+function avNames(a) { return a.beneficiaire + (a.beneficiaire2 ? ' & ' + a.beneficiaire2 : ''); }
+/* Avantage d'une carte VIP vendue (mode local : en base partagée, c'est le serveur qui l'ajoute) */
+function vipAvantageOf(s) {
+  return { id: 'av_' + s.id, type: 'vip', origine: 'vente', saleId: s.id, beneficiaire: s.client || 'Client', carte: s.categorie, duree: 'semaine',
+    date: s.date, dateDebut: s.date, dateFin: shiftISO(s.date, 6), motif: '', note: '', utilise: false, par: s.userId, createdAt: s.createdAt || new Date().toISOString() };
+}
+/* Mise à jour du 15/11/2026 en mode local (une seule fois, DB.avV) : cartes VIP déjà vendues et membres notés
+   en comptabilité repris dans le topo (en base partagée : upgradeAvantages dans api.mjs) */
+const AV_VERSION = 1;
+function upgradeAvantages() {
+  if (!DB || isShared() || (Number(DB.avV) || 0) >= AV_VERSION) return;
+  DB.avantages = DB.avantages || [];
+  const have = new Set(DB.avantages.map((x) => x && x.id));
+  let n = 0;
+  (DB.barSales || []).forEach((s) => {
+    if (!s || s.type !== 'carteVip' || have.has('av_' + s.id)) return;
+    DB.avantages.push(vipAvantageOf(s)); have.add('av_' + s.id); n++;
+  });
+  (DB.accountingWeeks || []).forEach((w) => (w.members || []).forEach((m, i) => {
+    const id = 'av_m_' + String((m && m.id) || `${w.id}_${i}`).replace(/[^\w-]/g, '').slice(0, 60);
+    if (!m || !String(m.nom || '').trim() || have.has(id)) return;
+    const t = membershipTiers().find((x) => x.nom === tierName(m.type));
+    DB.avantages.push({ id, type: 'vip', origine: 'compta', beneficiaire: String(m.nom).trim().slice(0, 60), carte: t ? t.key : 'Green', duree: 'semaine',
+      date: m.dateDebut || w.dateDebut || '', dateDebut: m.dateDebut || '', dateFin: m.dateFin || '', motif: '', note: m.paiement ? 'Paiement : ' + m.paiement : '',
+      utilise: false, par: null, createdAt: new Date().toISOString() });
+    have.add(id); n++;
+  }));
+  DB.avV = AV_VERSION;
+  if (n) logActivity('Onglet Topo', `${n} carte(s) VIP reprise(s) des ventes et de la comptabilité`);
+  saveSoon();
+}
 
 
 function defaultRevenueRows() { return REVENUE_CATS.map((c) => ({ categorie: c, lun: 0, mar: 0, mer: 0, jeu: 0, ven: 0, sam: 0, dim: 0, autre: 0 })); }
@@ -479,6 +582,7 @@ function seedData() {
     rdv: [],
     barSales: [],
     joursSansSoiree: [], // jours dont la soirée a été retirée à la main
+    avantages: [],       // topo : cartes VIP et récompenses des clients (pas de avV ici : une ancienne sauvegarde doit être reprise)
     menu: JSON.parse(JSON.stringify(CLUB.MENU)),
   };
 }

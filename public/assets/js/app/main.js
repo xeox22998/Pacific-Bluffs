@@ -3,7 +3,7 @@
    ===================================================================== */
 
 const PAGES = {
-  dashboard: () => renderDashboard(), planning: () => renderPlanning(), ventes: () => renderVentes(), presences: () => renderPresences(),
+  dashboard: () => renderDashboard(), planning: () => renderPlanning(), ventes: () => renderVentes(), topo: () => renderTopo(), presences: () => renderPresences(),
   programme: () => renderProgramme(), privatisations: () => renderPrivatisations(), comptabilite: () => renderComptabilite(),
   carte: () => renderCarte(), documents: () => renderDocuments(), equipe: () => renderEquipe(), administration: () => renderAdministration(),
 };
@@ -159,6 +159,7 @@ function enterApp(animated) {
     autoClassicSoirees();                                    // les prochains mois sont toujours remplis
     upgradeCarte();                                          // nouvelle carte : remplace l'ancienne enregistrée
     upgradeTaux();                                           // encadrement à 35 % + salaires max (mode local ; le serveur le fait en base partagée)
+    upgradeAvantages();                                      // cartes VIP déjà vendues → topo (mode local ; idem)
     syncAllRdv();                                            // privatisations datées → soirées privées au planning
     renderShell();
     renderPage(true);
@@ -292,7 +293,11 @@ function runSearch() {
   const docs = navAllowed('documents') ? visibleDocs().filter((d) => d.nom.toLowerCase().includes(q)).slice(0, 6) : [];
   const weeks = navAllowed('comptabilite') ? DB.accountingWeeks.filter((w) => ('semaine ' + w.numero).includes(q) || ('s' + w.numero) === q).slice(0, 4) : [];
   const items = navAllowed('carte') ? menuItems().filter((m) => m.nom.toLowerCase().includes(q)).slice(0, 4) : [];
+  // Topo : un client et ce qu'il a d'activé (avantages actifs ou prévus seulement)
+  const today = serviceDay();
+  const avs = navAllowed('topo') ? (DB.avantages || []).filter((a) => a && a.beneficiaire && isLive(a, today) && ((a.beneficiaire + ' ' + (a.beneficiaire2 || '')).toLowerCase().includes(q))).slice(0, 6) : [];
   let html = '';
+  if (avs.length) html += `<div class="sr-group"><h6>Topo — clients</h6>${avs.map((a) => `<button class="sr-item" type="button" onclick="hideSearch();TOPO_Q=${esc(JSON.stringify(a.beneficiaire))};TOPO_VIEW='actifs';TOPO_TYPE='all';goPage('topo')"><span class="doc-ic" style="width:30px;height:30px;font-size:15px">${avType(a.type).emoji}</span><span>${esc(avNames(a))}<small>${esc(avLabel(a))} · ${esc(avWhen(a))}</small></span></button>`).join('')}</div>`;
   if (emp.length) html += `<div class="sr-group"><h6>Employés</h6>${emp.map((u) => `<button class="sr-item" type="button" onclick="hideSearch();goPage('equipe');setTimeout(()=>openEmployeeSheet('${u.id}'),260)">${avatarHtml(u, 'sm')}<span>${esc(fullName(u))}<small>${esc(roleLabel(u))}</small></span></button>`).join('')}</div>`;
   if (evs.length) html += `<div class="sr-group"><h6>Soirées</h6>${evs.map((e) => `<button class="sr-item" type="button" onclick="hideSearch();goPage('programme');setTimeout(()=>openEventDetail('${e.id}'),260)">${icon('mic', 'sm')}<span>${esc(e.nom)}<small>${fmtDate(e.date)}</small></span></button>`).join('')}</div>`;
   if (rdvs.length) html += `<div class="sr-group"><h6>Privatisations</h6>${rdvs.map((r) => `<button class="sr-item" type="button" onclick="hideSearch();goPage('privatisations');setTimeout(()=>openRdv('${r.id}'),260)">${icon('party', 'sm')}<span>${esc(r.nom)}<small>${esc(r.ref)} · ${esc(r.statut)}</small></span></button>`).join('')}</div>`;

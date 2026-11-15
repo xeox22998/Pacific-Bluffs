@@ -59,7 +59,8 @@ const capOf = (u) => {
 // qui n'en ont pas. Ensuite, chaque vente garde son taux et son plafond.
 const RATES_VERSION = 3;
 // joursSansSoiree : jours dont la soirée a été retirée à la main (le planning n'y remet pas de soirée classique)
-const COLS = ['users', 'events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree'];
+// avantages : onglet Topo — récompenses offertes et cartes VIP des clients (voir cleanAvantage)
+const COLS = ['users', 'events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree', 'avantages'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // listes enregistrées d'un bloc : carte, cartes membres (tarifs, avantages) et cocons paradisiaques modifiés par la direction
 const WHOLE = ['postes', 'menu', 'couleurs', 'cartes', 'cocons'];
@@ -209,6 +210,77 @@ function normalizeSale(r, lists) {
   return out;
 }
 
+/* ---------------- Avantages des clients (onglet Topo) ----------------
+   Le topo sert au staff à savoir quel client a quoi d'activé, pour lui apporter les services adaptés.
+   Un avantage = ce qu'un client a gagné ou acheté : carte VIP (1 semaine ou 1 mois), escapade enchantée,
+   séjour paradisiaque, bon de réduction de 25 %, soirée privée. Origine : « recompense » (offerte, notée par
+   l'encadrement sur la fiche Récompenses : ni commission, ni recette), « vente » (carte VIP vendue sur la fiche
+   Cartes VIP, ajoutée par le serveur) ou « compta » (ancien membre noté en comptabilité, repris une fois).
+   Tout le staff les voit ; managers, comptabilité et direction les ajoutent, modifient et retirent. */
+const AV_TYPES = ['vip', 'escapade', 'sejour', 'bon', 'soiree'];
+const AV_ORIGINES = ['recompense', 'vente', 'compta'];
+const AV_VERSION = 1; // cartes VIP déjà vendues et membres notés en compta repris dans les avantages (meta.avV)
+const optDate = (v) => (DATE_RE.test(String(v || '')) ? String(v) : '');
+/* Clé d'une carte membre (Green / Gold / Platinum), anciennes écritures comprises (« GOLD », « Platine »…) */
+function tierKey(v) {
+  const k = String(v || '').trim().toLowerCase();
+  return Object.keys(CARD_PRICES).find((t) => t.toLowerCase() === k || (k.length >= 4 && t.toLowerCase().startsWith(k.slice(0, 4)))) || '';
+}
+function cleanAvantage(r, userId) {
+  if (!r || typeof r !== 'object' || typeof r.id !== 'string' || !/^[\w-]{1,80}$/.test(r.id)) return null;
+  const type = AV_TYPES.includes(r.type) ? r.type : null;
+  const beneficiaire = clean(r.beneficiaire, 60);
+  if (!type || !beneficiaire) return null;
+  const out = {
+    id: r.id, type, origine: AV_ORIGINES.includes(r.origine) ? r.origine : 'recompense', beneficiaire,
+    date: optDate(r.date), dateDebut: optDate(r.dateDebut), dateFin: optDate(r.dateFin),
+    motif: clean(r.motif, 80), note: clean(r.note, 200), utilise: !!r.utilise,
+    par: typeof r.par === 'string' ? r.par.slice(0, 40) : userId, createdAt: clean(r.createdAt, 40) || new Date().toISOString(),
+  };
+  const b2 = clean(r.beneficiaire2, 60);
+  if (b2 && (type === 'escapade' || type === 'sejour')) out.beneficiaire2 = b2; // chambre pour 2
+  if (type === 'vip') { out.carte = tierKey(r.carte) || 'Green'; out.duree = r.duree === 'mois' ? 'mois' : 'semaine'; }
+  if (typeof r.saleId === 'string') out.saleId = r.saleId.slice(0, 80);
+  if (out.dateFin && out.dateDebut && out.dateFin < out.dateDebut) out.dateFin = out.dateDebut;
+  return out;
+}
+/* Carte VIP vendue sur la fiche Cartes VIP → avantage « vente » (valable 7 jours, comme en compta) */
+const vipFromSale = (s) => ({
+  id: 'av_' + s.id, type: 'vip', origine: 'vente', saleId: s.id, beneficiaire: clean(s.client, 60) || 'Client', carte: tierKey(s.categorie) || 'Green',
+  duree: 'semaine', date: optDate(s.date), dateDebut: optDate(s.date), dateFin: s.date && DATE_RE.test(s.date) ? shiftISO(s.date, 6) : '',
+  motif: '', note: '', utilise: false, par: typeof s.userId === 'string' ? s.userId : null, createdAt: clean(s.createdAt, 40) || new Date().toISOString(),
+});
+/* Ventes de cartes VIP ajoutées, corrigées ou retirées : l'avantage du client suit (un avantage retiré à la main
+   dans l'onglet Topo ne revient pas tant que la vente n'est pas recréée). Renvoie ce qui a changé, que l'espace
+   staff applique tout de suite (sinon le vendeur ne verrait la carte qu'au prochain changement d'un autre poste). */
+async function linkVipAvantages(store, ups, removed, prevOf) {
+  const delta = { upsert: [], remove: [] };
+  const vipUps = ups.filter((s) => s && s.type === 'carteVip');
+  const vipRm = removed.filter((s) => s && s.type === 'carteVip');
+  if (!vipUps.length && !vipRm.length) return delta;
+  let av = await col(store, 'avantages');
+  for (const s of vipUps) {
+    const i = av.findIndex((x) => x && x.id === 'av_' + s.id);
+    const prev = prevOf(s.id);
+    if (i < 0) { if (!prev) { const v = vipFromSale(s); av.push(v); delta.upsert.push(v); } continue; }
+    if (prev && (prev.client !== s.client || prev.categorie !== s.categorie || prev.date !== s.date)) {
+      const v = vipFromSale(s);
+      av[i] = { ...av[i], beneficiaire: v.beneficiaire, carte: v.carte, date: v.date, dateDebut: v.dateDebut, dateFin: v.dateFin };
+      delta.upsert.push(av[i]);
+    }
+  }
+  if (vipRm.length) {
+    const rm = new Set(vipRm.map((s) => 'av_' + s.id));
+    av = av.filter((x) => {
+      if (!(x && rm.has(x.id) && x.origine === 'vente')) return true;
+      delta.remove.push(x.id);
+      return false;
+    });
+  }
+  if (delta.upsert.length || delta.remove.length) await putCol(store, 'avantages', av);
+  return delta;
+}
+
 /* ---------------- Stockage ---------------- */
 async function readJSON(store, key, fallback) {
   const v = await store.get(key, { type: 'json' });
@@ -247,13 +319,43 @@ async function upgradeRates(store) {
   if (n) await addLog(store, null, 'Commissions mises à jour', `${n} vente(s) de l'encadrement passée(s) à ${Math.round(ROLE_RATES.DIRECTION * 100)} %`);
   await bump(store, { tauxV: RATES_VERSION });
 }
+/* Onglet Topo (15/11/2026) : les cartes VIP déjà vendues et les membres notés en comptabilité deviennent des
+   avantages, une seule fois (meta.avV). La liste des membres n'est plus affichée dans la comptabilité. */
+async function upgradeAvantages(store) {
+  const meta = await readMeta(store);
+  if ((Number(meta.avV) || 0) >= AV_VERSION) return;
+  const [sales, weeks, av] = await Promise.all([col(store, 'barSales'), col(store, 'accountingWeeks'), col(store, 'avantages')]);
+  const have = new Set(av.map((x) => x && x.id));
+  let n = 0;
+  for (const s of sales) {
+    if (!s || s.type !== 'carteVip' || have.has('av_' + s.id)) continue;
+    av.push(vipFromSale(s)); have.add('av_' + s.id); n++;
+  }
+  for (const w of weeks) {
+    (Array.isArray(w && w.members) ? w.members : []).forEach((m, i) => {
+      const id = 'av_m_' + String((m && m.id) || `${w.id}_${i}`).replace(/[^\w-]/g, '').slice(0, 60);
+      if (!m || !clean(m.nom, 60) || have.has(id)) return;
+      av.push({
+        id, type: 'vip', origine: 'compta', beneficiaire: clean(m.nom, 60), carte: tierKey(m.type) || 'Green', duree: 'semaine',
+        date: optDate(m.dateDebut) || optDate(w.dateDebut), dateDebut: optDate(m.dateDebut), dateFin: optDate(m.dateFin),
+        motif: '', note: clean(m.paiement, 120) ? 'Paiement : ' + clean(m.paiement, 120) : '', utilise: false, par: null, createdAt: new Date().toISOString(),
+      });
+      have.add(id); n++;
+    });
+  }
+  if (n) {
+    await putCol(store, 'avantages', av);
+    await addLog(store, null, 'Onglet Topo', `${n} carte(s) VIP reprise(s) des ventes et de la comptabilité`);
+  }
+  await bump(store, { avV: AV_VERSION });
+}
 async function loadAll(store) {
-  const [users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, joursSansSoiree, postes, menu, couleurs, cartes, cocons, meta] = await Promise.all([
+  const [users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, joursSansSoiree, avantages, postes, menu, couleurs, cartes, cocons, meta] = await Promise.all([
     col(store, 'users'), col(store, 'events'), col(store, 'attendances'), col(store, 'accountingWeeks'), col(store, 'documents'),
-    col(store, 'activityLogs'), col(store, 'rdv'), col(store, 'barSales'), col(store, 'joursSansSoiree'), readJSON(store, 'col:postes', null), readJSON(store, 'col:menu', null),
+    col(store, 'activityLogs'), col(store, 'rdv'), col(store, 'barSales'), col(store, 'joursSansSoiree'), col(store, 'avantages'), readJSON(store, 'col:postes', null), readJSON(store, 'col:menu', null),
     readJSON(store, 'col:couleurs', null), readJSON(store, 'col:cartes', null), readJSON(store, 'col:cocons', null), readMeta(store),
   ]);
-  return { users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, joursSansSoiree, postes, menu, couleurs, cartes, cocons, meta };
+  return { users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, joursSansSoiree, avantages, postes, menu, couleurs, cartes, cocons, meta };
 }
 /* Type d'une soirée (Grand événement par défaut, sauf les soirées classiques) */
 const eventCat = (e) => e.categorie || (e.nom === 'Soirée classique' ? 'classique' : 'grand');
@@ -421,6 +523,7 @@ function weekForEmploye(w, u) {
 
 async function routeData(store, a) {
   await upgradeRates(store);
+  await upgradeAvantages(store);
   const all = await loadAll(store);
   const role = a.user.role;
   const employe = role === 'EMPLOYE';
@@ -435,6 +538,7 @@ async function routeData(store, a) {
     rdv: ['DIRECTION', 'SECRETAIRE', 'MANAGER'].includes(role) ? all.rdv : [],
     barSales: employe ? all.barSales.filter((s) => s && s.userId === a.user.id) : all.barSales, // l'employé : ses ventes seulement
     joursSansSoiree: all.joursSansSoiree,
+    avantages: all.avantages, // onglet Topo : visible par tout le staff
     menu: all.menu,
     couleurs: all.couleurs,
     cartes: all.cartes,
@@ -457,9 +561,11 @@ async function routeSync(req, store, a) {
     documents: [D || G, D], // documents : ajout direction et fisc, suppression direction
     activityLogs: [true, false], rdv: [D || S, D], barSales: [!G, !G],
     joursSansSoiree: [D || S, D || S], // comme la suppression des soirées
+    avantages: [D || S || M, D || S || M], // onglet Topo et fiche Récompenses : encadrement seulement
   };
   const wholePerms = { postes: D, menu: D, couleurs: D || S, cartes: D, cocons: D };
   const denied = [];
+  const derived = {}; // changements faits par le serveur (avantages des cartes VIP vendues), renvoyés à l'espace staff
   for (const [name, c] of Object.entries(changes)) {
     if (COLS.includes(name)) {
       let ups = Array.isArray(c && c.upsert) ? c.upsert.slice(0, 5000) : [];
@@ -469,6 +575,7 @@ async function routeSync(req, store, a) {
       // un jour vidé = { id: « js_<date> », date } et rien d'autre
       if (name === 'joursSansSoiree') ups = ups.filter((r) => r && DATE_RE.test(r.date)).map((r) => ({ id: 'js_' + r.date, date: r.date }));
       if (name === 'documents') ups = ups.map(cleanDoc);
+      if (name === 'avantages') ups = ups.map((r) => cleanAvantage(r, a.user.id)).filter(Boolean);
       let list = await col(store, name);
       const docsBefore = name === 'documents' ? list.slice() : null;
       const index = new Map(list.map((r, i) => [r && r.id, i]));
@@ -499,6 +606,10 @@ async function routeSync(req, store, a) {
           return out;
         }).filter(Boolean);
         if (ups.length + rms.length < asked) denied.push(name); // l'espace staff recharge alors les vraies données
+        // cartes VIP vendues : l'avantage du client (onglet Topo) est ajouté, corrigé ou retiré avec la vente
+        const prevOf = (id) => { const i = index.get(id); return i !== undefined ? list[i] : null; };
+        const d = await linkVipAvantages(store, ups, rms.map(prevOf), prevOf);
+        if (d.upsert.length || d.remove.length) derived.avantages = d;
       }
       if (name === 'attendances' && !(D || M || S) && rms.length) {
         // présence retirée par un employé : la sienne seulement, et pas une fois validée
@@ -561,7 +672,7 @@ async function routeSync(req, store, a) {
     }
   }
   const meta = await bump(store);
-  return json({ ok: true, denied, version: meta.version });
+  return json({ ok: true, denied, derived, version: meta.version });
 }
 
 /* Envoi (ou retrait si data est vide) de l'affiche d'une soirée — direction et comptabilité */
@@ -758,10 +869,13 @@ async function routeBootstrap(req, store, a) {
 async function routeExport(store, a) {
   if (a.user.role !== 'DIRECTION') return fail(403, 'Réservé à la direction.');
   await upgradeRates(store);
+  await upgradeAvantages(store);
   const all = await loadAll(store);
   const tauxV = Number(all.meta.tauxV) || 0; // la sauvegarde dit si les ventes ont déjà été mises à jour (taux de l'encadrement, plafonds)
+  const avV = Number(all.meta.avV) || 0;     // … et si les cartes VIP ont déjà été reprises dans les avantages
   delete all.meta;
   all.tauxV = tauxV;
+  all.avV = avV;
   return json({ pacific: 'sauvegarde', exportedAt: new Date().toISOString(), data: all });
 }
 
@@ -782,7 +896,8 @@ async function routeImport(req, store, a) {
   for (const doc of docs) if (doc && doc.fichier && !(await readJSON(store, 'docfile:' + doc.id, null))) delete doc.fichier;
   await dropDocFiles(store, await col(store, 'documents'), docs);
   d.documents = docs;
-  for (const name of ['events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree']) {
+  d.avantages = (Array.isArray(d.avantages) ? d.avantages : []).map((r) => cleanAvantage(r, null)).filter(Boolean);
+  for (const name of ['events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree', 'avantages']) {
     await putCol(store, name, Array.isArray(d[name]) ? d[name] : []);
   }
   await putCol(store, 'users', users);
@@ -797,8 +912,9 @@ async function routeImport(req, store, a) {
   }
   await store.setJSON('sessions', { [a.token]: { userId: me.id, exp: Date.now() + SESSION_MS } });
   await addLog(store, me.id, 'Sauvegarde importée', `${users.length} compte(s), ${d.accountingWeeks.length} semaine(s)`);
-  // ancienne sauvegarde (avant l'encadrement à 35 % et les plafonds) : ses ventes seront mises à jour au prochain chargement
-  const meta = await bump(store, { initialized: true, tauxV: Number(d.tauxV) || 0 });
+  // ancienne sauvegarde (avant l'encadrement à 35 % et les plafonds, avant l'onglet Topo) : ses ventes et ses cartes VIP
+  // seront mises à jour au prochain chargement
+  const meta = await bump(store, { initialized: true, tauxV: Number(d.tauxV) || 0, avV: Number(d.avV) || 0 });
   return json({ ok: true, version: meta.version });
 }
 
@@ -807,7 +923,7 @@ async function routeReset(store, a) {
   await dropDocFiles(store, await col(store, 'documents'), []);
   for (const k of Object.keys(await readJSON(store, PENDING_KEY, {}))) await store.delete('docfile:' + k);
   await store.delete(PENDING_KEY);
-  for (const name of ['events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree']) await putCol(store, name, []);
+  for (const name of ['events', 'attendances', 'accountingWeeks', 'documents', 'activityLogs', 'rdv', 'barSales', 'joursSansSoiree', 'avantages']) await putCol(store, name, []);
   await putCol(store, 'users', [a.user]);
   await dropPhotos(store, await readJSON(store, 'col:menu', null), []);
   await store.delete('col:postes');

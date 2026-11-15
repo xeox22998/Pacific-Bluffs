@@ -14,6 +14,11 @@
      par semaine (plafond gardé sur la vente) : 14 000 $ managers et comptabilité,
      12 000 $ qualifiés, 10 000 $ non qualifiés et recrues, direction sans
      maximum ; le surplus n'est pas versé et reste dans la compta.
+   - Fiche « Récompenses » (après Cartes VIP, managers, comptabilité et
+     direction seulement) : ce qu'un client a gagné gratuitement (carte VIP
+     1 mois ou 1 semaine, escapade enchantée, séjour paradisiaque, bon de
+     réduction de 25 %, soirée privée). Ni commission, ni recette : rien en
+     comptabilité. Chaque récompense va dans le Topo (DB.avantages, topo.js).
    Droits (revérifiés par le serveur) : chacun n'ajoute et ne retire que SES
    ventes de la soirée en cours ; un employé ne voit que ses ventes et son
    salaire (pas la comptabilité) ; manager et gouvernement lisent toutes les
@@ -21,10 +26,10 @@
    direction seulement).
    ===================================================================== */
 let VENTE_DAY = null;          // journée de service affichée
-let VENTE_TYPE = 'carte';      // fiche affichée
+let VENTE_TYPE = 'carte';      // fiche affichée ('recompense' : fiche Récompenses)
 let VENTE_SELLER = null;       // 'me', 'all' ou l'identifiant d'un compte
 let DOSSIER_WEEK = null;       // lundi de la semaine affichée dans le dossier salaires
-const VENTE_LAST = { carte: '', hospKind: 'Entrée', hospLabel: {}, hospPrix: {}, cocon: '', tier: 'Green' };
+const VENTE_LAST = { carte: '', hospKind: 'Entrée', hospLabel: {}, hospPrix: {}, cocon: '', tier: 'Green', reward: 'vip-mois', rewardTier: 'Green' };
 let VENTE_CLOCK_DAY = null;
 
 function canSeeAllSales() { return [ROLES.DIRECTION, ROLES.SECRETAIRE, ROLES.MANAGER, ROLES.GOUVERNEMENT].includes(CURRENT_USER.role); }
@@ -70,8 +75,9 @@ function renderVentes() {
   const today = serviceDay();
   if (VENTE_USER !== CURRENT_USER.id) {
     VENTE_USER = CURRENT_USER.id; VENTE_DAY = null; VENTE_SELLER = null; DOSSIER_WEEK = null; VENTE_TYPE = 'carte';
-    Object.assign(VENTE_LAST, { carte: '', hospKind: 'Entrée', hospLabel: {}, hospPrix: {}, cocon: '', tier: 'Green' });
+    Object.assign(VENTE_LAST, { carte: '', hospKind: 'Entrée', hospLabel: {}, hospPrix: {}, cocon: '', tier: 'Green', reward: 'vip-mois', rewardTier: 'Green' });
   }
+  if (VENTE_TYPE === 'recompense' && !canEditTopo()) VENTE_TYPE = 'carte';
   if (!VENTE_DAY || VENTE_DAY > today) VENTE_DAY = today;
   if (VENTE_SELLER === null || !canSeeAllSales()) VENTE_SELLER = canSeeAllSales() ? 'all' : 'me';
   VENTE_CLOCK_DAY = today;
@@ -129,14 +135,16 @@ function renderVentes() {
     return `<button class="bs-tab ${d === VENTE_DAY ? 'is-active' : ''}" type="button" onclick="selectVenteDay('${d}')"><b>${d === today ? 'Ce soir' : DAY_LABELS[(dt.getDay() + 6) % 7] + ' ' + dt.getDate()}</b><small>${t ? fmtMoney(t) : '—'}</small></button>`;
   }).join('')}</div>${canCorrectSales() ? `<input class="cell-in sale-date" type="date" max="${today}" value="${VENTE_DAY}" onchange="selectVenteDay(this.value)" aria-label="Choisir une autre soirée">` : ''}</div>`;
 
-  // Les trois fiches
+  // Les trois fiches (+ Récompenses pour l'encadrement)
   const daySales = scopeSales(allSales().filter((s) => s.date === VENTE_DAY));
-  html += `<div class="sale-tabs" role="tablist" aria-label="Fiches de ventes">${SALE_TYPES.map((t) => {
+  const rewards = canEditTopo() ? dayRewards(VENTE_DAY) : null;
+  html += `<div class="sale-tabs${rewards ? ' has-4' : ''}" role="tablist" aria-label="Fiches de ventes">${SALE_TYPES.map((t) => {
     const list = daySales.filter((s) => saleType(s) === t.id);
     return `<button class="sale-tab ${t.id === VENTE_TYPE ? 'is-active' : ''}" type="button" role="tab" aria-selected="${t.id === VENTE_TYPE}" onclick="selectVenteType('${t.id}')">
       <span class="st-ic" aria-hidden="true">${t.emoji}</span><span><b>${t.label}</b><small>${list.length ? `${fmtMoney(sumSales(list))} · ${list.length} vente${list.length > 1 ? 's' : ''}` : 'Aucune vente'}</small></span></button>`;
-  }).join('')}</div>`;
-  html += renderSaleSheet(daySales.filter((s) => saleType(s) === VENTE_TYPE));
+  }).join('')}${rewards ? `<button class="sale-tab ${VENTE_TYPE === 'recompense' ? 'is-active' : ''}" type="button" role="tab" aria-selected="${VENTE_TYPE === 'recompense'}" onclick="selectVenteType('recompense')">
+      <span class="st-ic" aria-hidden="true">🎁</span><span><b>Récompenses</b><small>${rewards.length ? `${rewards.length} offerte${rewards.length > 1 ? 's' : ''}` : 'Aucune récompense'}</small></span></button>` : ''}</div>`;
+  html += VENTE_TYPE === 'recompense' ? renderRewardSheet(rewards) : renderSaleSheet(daySales.filter((s) => saleType(s) === VENTE_TYPE));
 
   // Dossier salaires
   html += renderDossier();
@@ -242,9 +250,72 @@ function saleForm() {
     ${qty}${add}</div>`;
 }
 
+/* ---------- Fiche Récompenses (encadrement) : offertes, sans commission ni recette ---------- */
+function dayRewards(date) {
+  return (DB.avantages || []).filter((a) => a && a.origine === 'recompense' && a.date === date)
+    .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+}
+function avHeure(a) { const d = new Date(a.createdAt || ''); return isNaN(d) ? '—' : pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+function renderRewardSheet(rows) {
+  const choice = REWARD_CHOICES.find((c) => c.id === VENTE_LAST.reward) || REWARD_CHOICES[0];
+  const enter = `onkeydown="if(event.key==='Enter')addReward()"`;
+  const dated = ['escapade', 'sejour', 'soiree'].includes(choice.type);
+  const form = `<div class="bs-add">
+    <select class="input bs-reward" id="rwKind" aria-label="Récompense offerte" onchange="setRewardKind(this.value)">${REWARD_CHOICES.map((c) => `<option value="${c.id}" ${c.id === choice.id ? 'selected' : ''}>${avType(c.type).emoji} ${esc(c.label)}</option>`).join('')}</select>
+    ${choice.type === 'vip' ? `<select class="input bs-tier" id="rwTier" aria-label="Carte offerte">${membershipTiers().map((t) => `<option value="${t.key}" ${t.key === VENTE_LAST.rewardTier ? 'selected' : ''}>Carte ${esc(t.nom)}</option>`).join('')}</select>` : ''}
+    <input class="input bs-client" id="rwClient" maxlength="60" placeholder="Nom du gagnant" aria-label="Nom du gagnant" ${enter}>
+    ${avDuo(choice.type) ? `<input class="input bs-client" id="rwClient2" maxlength="60" placeholder="2e personne (facultatif)" aria-label="Nom de la deuxième personne (chambre pour 2)" ${enter}>` : ''}
+    ${dated ? `<label class="bs-field"><span>Date prévue (facultatif)</span><input class="input" id="rwDate" type="date" min="${VENTE_DAY}"></label>` : ''}
+    ${choice.type === 'bon' ? `<label class="bs-field"><span>Valable jusqu'au (facultatif)</span><input class="input" id="rwFin" type="date" min="${VENTE_DAY}"></label>` : ''}
+    <input class="input bs-label" id="rwMotif" maxlength="80" placeholder="Occasion (ex : tirage au sort, concours)" aria-label="Occasion" ${enter}>
+    <button class="btn btn-sun" type="button" onclick="addReward()">${icon('plus', 'sm')}Ajouter</button></div>`;
+  return `<div class="card sale-sheet">
+    <div class="bs-head"><div><b>🎁 Fiche des récompenses — ${esc(saleDayLabel(VENTE_DAY).toLowerCase())}</b><small>Récompenses gagnées gratuitement : ni commission, ni recette (rien en comptabilité). Chacune apparaît tout de suite dans le Topo.</small></div>
+      <div class="bs-total">${rows.length}<small>récompense${rows.length > 1 ? 's' : ''} offerte${rows.length > 1 ? 's' : ''}</small></div></div>
+    ${form}
+    ${rows.length ? `<div class="table-scroll"><table class="tbl compact bs-tbl"><thead><tr><th>Heure</th><th>Noté par</th><th>Récompense</th><th>Gagnant</th><th>Validité</th><th>Occasion</th><th></th></tr></thead><tbody>
+      ${rows.map((a) => `<tr><td>${esc(avHeure(a))}</td><td>${esc(userLabel(a.par))}</td>
+        <td class="strong">${avType(a.type).emoji} ${esc(avLabel(a))}</td><td>${esc(avNames(a))}</td><td>${esc(avWhen(a))}</td><td>${esc(a.motif || '—')}</td>
+        <td><button class="icon-btn xs" type="button" onclick="removeAvantage('${a.id}')" aria-label="Retirer cette récompense">${icon('x', 'sm')}</button></td></tr>`).join('')}
+      </tbody></table></div>`
+    : '<p class="muted bs-empty">Aucune récompense notée pour cette soirée. Choisissez la récompense, le nom du gagnant puis « Ajouter » : elle part tout de suite dans le Topo.</p>'}
+  </div>`;
+}
+function setRewardKind(id) {
+  VENTE_LAST.reward = REWARD_CHOICES.some((c) => c.id === id) ? id : 'vip-mois';
+  const keep = (document.getElementById('rwClient') || {}).value || '';
+  renderPage(false);
+  setTimeout(() => { const el = document.getElementById('rwClient'); if (el) { el.value = keep; el.focus(); } }, 60);
+}
+function addReward() {
+  if (!canEditTopo()) return;
+  const val = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const choice = REWARD_CHOICES.find((c) => c.id === val('rwKind')) || REWARD_CHOICES[0];
+  const client = val('rwClient').trim().slice(0, 60);
+  if (!client) { toast('Indiquez le nom de la personne qui a gagné.', 'error'); const el = document.getElementById('rwClient'); if (el) el.focus(); return; }
+  const date = VENTE_DAY || serviceDay();
+  const a = { id: uid('av'), type: choice.type, origine: 'recompense', beneficiaire: client, date, dateDebut: '', dateFin: '',
+    motif: val('rwMotif').trim().slice(0, 80), note: '', utilise: false, par: CURRENT_USER.id, createdAt: new Date().toISOString() };
+  if (choice.type === 'vip') {
+    const tier = membershipTiers().find((t) => t.key === val('rwTier')) || membershipTiers()[0];
+    Object.assign(a, { carte: tier.key, duree: choice.duree, dateDebut: date, dateFin: vipEnd(date, choice.duree) });
+    VENTE_LAST.rewardTier = tier.key;
+  }
+  const client2 = val('rwClient2').trim().slice(0, 60);
+  if (avDuo(choice.type) && client2) a.beneficiaire2 = client2;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val('rwDate'))) a.dateDebut = val('rwDate');
+  if (choice.type === 'bon' && /^\d{4}-\d{2}-\d{2}$/.test(val('rwFin'))) a.dateFin = val('rwFin');
+  VENTE_LAST.reward = choice.id;
+  DB.avantages.push(a);
+  logActivity('Récompense offerte', `${avLabel(a)} — ${avNames(a)}${a.motif ? ' (' + a.motif + ')' : ''}`);
+  toast(`${avLabel(a)} offert à ${avNames(a)} : visible dans le Topo.`, 'success');
+  refresh();
+  setTimeout(() => { const el = document.getElementById('rwClient'); if (el) el.focus(); }, 60);
+}
+
 /* ---------- Actions ---------- */
 function selectVenteDay(d) { if (!/^\d{4}-\d{2}-\d{2}$/.test(d || '')) return; VENTE_DAY = d > serviceDay() ? serviceDay() : d; DOSSIER_WEEK = mondayOf(VENTE_DAY); renderPage(false); }
-function selectVenteType(t) { VENTE_TYPE = saleTypeInfo(t).id; renderPage(false); }
+function selectVenteType(t) { VENTE_TYPE = t === 'recompense' && canEditTopo() ? 'recompense' : saleTypeInfo(t).id; renderPage(false); }
 function setVenteSeller(v) { VENTE_SELLER = v || 'all'; renderPage(false); }
 function setHospKind(k) { VENTE_LAST.hospKind = HOSP_CHOICES.includes(k) ? k : 'Entrée'; renderPage(false); setTimeout(() => { const el = document.getElementById(k === 'Cocon' ? 'svClient' : 'svPrice'); if (el) el.focus(); }, 60); }
 /* Depuis la comptabilité : ouvrir la fiche d'un jour */
@@ -299,9 +370,11 @@ function addVente() {
   // taux et salaire maximum : rôle / grade du vendeur au moment de la vente (revérifiés et fixés par le serveur en base partagée)
   const sale = { id: uid('vt'), type, date, day: dayKeyOf(date), userId: sellerId, ...rec, taux: userRate(sellerId), plafond: userCap(sellerId), heure: nowHM(), createdAt: new Date().toISOString() };
   DB.barSales.push(sale);
+  // carte VIP vendue → le client apparaît dans le Topo (en base partagée, c'est le serveur qui l'ajoute pour tout le monde)
+  if (type === 'carteVip' && !isShared()) DB.avantages.push(vipAvantageOf(sale));
   const wk = weekSalesOf(date, [sellerId]);
   const over = sellerPay(wk.filter(isSaleTransferred), wk.filter((s) => !isSaleTransferred(s))).surplus > 0;
-  toast(`${rec.qty} × ${rec.nom} enregistré (${fmtMoney(saleTotal(sale))}) — part ${pctOf(sale.taux)} : ${fmtMoney(saleCommission(sale))}${over ? ` (salaire max de la semaine atteint : le surplus reste à la compta)` : ''}.`, 'success');
+  toast(`${rec.qty} × ${rec.nom} enregistré (${fmtMoney(saleTotal(sale))}) — part ${pctOf(sale.taux)} : ${fmtMoney(saleCommission(sale))}${over ? ` (salaire max de la semaine atteint : le surplus reste à la compta)` : ''}${type === 'carteVip' ? ` · ${rec.client} ajouté au Topo` : ''}.`, 'success');
   refresh();
   setTimeout(() => { const el = document.getElementById(focus); if (el) el.focus(); }, 60);
 }
@@ -310,6 +383,8 @@ function removeVente(id) {
   if (!s || !canRemoveSale(s)) return;
   confirmAction(`Retirer la vente « ${Number(s.qty) || 0} × ${esc(s.nom)} » (${fmtMoney(saleTotal(s))}) ?`, () => {
     DB.barSales = DB.barSales.filter((x) => x.id !== id);
+    // la carte VIP part aussi du Topo (en base partagée : le serveur s'en charge)
+    if (s.type === 'carteVip' && !isShared()) DB.avantages = DB.avantages.filter((a) => !(a.id === 'av_' + id && a.origine === 'vente'));
     logActivity('Vente retirée', `${s.qty} × ${s.nom} — ${userLabel(s.userId)}, soirée du ${fmtDateShort(s.date)}`);
     toast('Vente retirée.', 'success'); refresh();
   }, 'Retirer');

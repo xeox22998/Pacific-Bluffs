@@ -1,7 +1,8 @@
 /* =====================================================================
    PACIFIC BLUFFS — Comptabilité hebdomadaire
    Droits :
-   - Direction + Comptabilité : structure (lignes, semaines, salaires, membres)
+   - Direction + Comptabilité : structure (lignes, semaines, salaires)
+   - Cartes membres actives : plus ici, dans l'onglet Topo (topo.js) depuis le 15/11/2026
    - Managers : saisie des montants
    - Gouvernement / Fisc : lecture seule (contrôle fiscal)
    - Employés : pas d'accès (ils voient leurs ventes et leur salaire dans l'onglet Ventes ;
@@ -64,7 +65,7 @@ function renderComptabilite() {
   const tonight = serviceDay();
   const live = tonight >= (week.dateDebut || '') && tonight <= (week.dateFin || '') ? allSales().filter((s) => s.date === tonight) : [];
   html += `<section class="section">${sectionHead('Revenus hebdomadaires', null, `<button class="btn btn-xs" type="button" onclick="openVentesDay(null,null)">${icon('receipt', 'sm')}Fiches de ventes</button>${editStruct ? `<button class="btn btn-xs" type="button" onclick="addRevenueRow('${week.id}')">${icon('plus', 'sm')}Ligne</button>` : ''}`)}
-    <p class="field-hint" style="margin:-6px 0 12px">Les cases marquées ${icon('receipt', 'sm')} se remplissent toutes seules avec les fiches de ventes de l'onglet Ventes, chaque matin à 6h.${live.length ? ` Ce soir : <b>${fmtMoney(sumSales(live))}</b> de ventes en cours, ajoutées à 6h.` : ''}</p>
+    <p class="field-hint" style="margin:-6px 0 12px">Les cases marquées ${icon('receipt', 'sm')} se remplissent toutes seules avec les fiches de ventes de l'onglet Ventes, chaque matin à 6h.${live.length ? ` Ce soir : <b>${fmtMoney(sumSales(live))}</b> de ventes en cours, ajoutées à 6h.` : ''} Les clients qui ont une carte VIP sont dans l'onglet <button class="link-btn" type="button" onclick="goPage('topo')">Topo</button> ; les récompenses offertes n'entrent pas en comptabilité.</p>
     ${renderRevenueTable(week, editStruct, canFill)}</section>`;
   // Charges
   html += `<section class="section">${sectionHead('Charges &amp; dépenses', null, editStruct ? `<button class="btn btn-xs" type="button" onclick="addExpenseRow('${week.id}')">${icon('plus', 'sm')}Ligne</button>` : '')}${renderExpenseTable(week, editStruct, canFill)}</section>`;
@@ -81,11 +82,8 @@ function renderComptabilite() {
     ${renderSalaryTable(week, editStruct)}</section>`;
   // Ventes de la carte
   html += `<section class="section">${sectionHead('Ventes de la carte — récap de la semaine', null, `<span class="badge nodot">${comptaSales(week, 'carte').length ? 'calculé' : 'informatif'}</span>`)}${renderMenuSales(week, canFill)}</section>`;
-  // Cartes membres
-  const autoMembers = comptaSales(week, 'carteVip').length;
-  html += `<section class="section">${sectionHead('Cartes membres actives', autoMembers + (week.members || []).length, editStruct ? `<button class="btn btn-xs" type="button" onclick="addMemberRow('${week.id}')">${icon('plus', 'sm')}Ligne</button>` : '')}
-    <p class="field-hint" style="margin:-4px 0 12px">Tarifs en vigueur : ${membershipTiers().map((t) => `${esc(t.nom.toUpperCase())} ${fmtMoney(t.prix)}/semaine`).join(' · ')}. Les cartes vendues sur la fiche « Cartes VIP » s'ajoutent toutes seules.</p>
-    ${renderMemberTable(week, editStruct)}</section>`;
+  // Les cartes membres actives (qui a quelle carte VIP) ne sont plus ici mais dans l'onglet Topo (15/11/2026) ;
+  // la recette des cartes vendues reste dans « Cartes membres » ci-dessus.
   // Observations
   html += `<section class="section">${sectionHead('Observations', null, isDirection() ? `<button class="btn btn-xs" type="button" onclick="editObservations('${week.id}')">${icon('edit', 'sm')}Modifier</button>` : '')}
     <div class="card obs">${esc(week.observations) || '<span class="muted">Aucune observation.</span>'}
@@ -225,29 +223,6 @@ function renderMenuSales(week, editable) {
   return `<div class="menu-sales stagger">${cards}</div>
     <p class="field-hint" style="margin-top:12px">Chiffre d'affaires implicite du menu détaillé : <b>${fmtMoney(grand)}</b>. Pour que les montants se calculent et se reportent tout seuls, notez plutôt les ventes sur la <b>fiche des ventes de la carte</b> (onglet Ventes) : elles arrivent ici chaque matin à 6h.</p>`;
 }
-function renderMemberTable(week, editStruct) {
-  const list = week.members || [];
-  // Cartes vendues sur la fiche « Cartes VIP » (transférées à 6h) : lignes calculées
-  const autoRows = comptaSales(week, 'carteVip').sort((a, b) => (a.date || '').localeCompare(b.date || '')).map((s) => `<tr class="bar-row">
-    <td><span class="strong">${esc(s.client || '—')}</span></td>
-    <td><span class="badge sun nodot">${esc(tierName(s.categorie))}</span></td>
-    <td>${fmtDateShort(s.date)}</td>
-    <td>${s.date ? fmtDateShort(shiftISO(s.date, 6)) : '—'}</td>
-    <td>${fmtMoney(saleTotal(s))} · vendue par ${esc(userLabel(s.userId))}<span class="auto-tag">${icon('receipt', 'sm')}Fiche Cartes VIP</span></td>
-    ${editStruct ? '<td></td>' : ''}
-  </tr>`).join('');
-  const rows = autoRows + list.map((m, i) => `<tr>
-    <td>${editStruct ? textInput(m.nom, `updateMemberCell('${week.id}',${i},'nom',this.value)`, 170) : `<span class="strong">${esc(m.nom)}</span>`}</td>
-    <td>${editStruct ? `<select class="cell-in" onchange="updateMemberCell('${week.id}',${i},'type',this.value)">${membershipTiers().map((t) => `<option value="${t.key}" ${String(m.type || '').toLowerCase().startsWith(t.key.toLowerCase().slice(0, 4)) ? 'selected' : ''}>${esc(t.nom)}</option>`).join('')}</select>` : `<span class="badge sun nodot">${esc(tierName(m.type))}</span>`}</td>
-    <td>${editStruct ? `<input class="cell-in" type="date" value="${/^\d{4}-\d{2}-\d{2}$/.test(m.dateDebut || '') ? esc(m.dateDebut) : ''}" onchange="updateMemberCell('${week.id}',${i},'dateDebut',this.value)">` : fmtDateShort(m.dateDebut)}</td>
-    <td>${editStruct ? `<input class="cell-in" type="date" value="${/^\d{4}-\d{2}-\d{2}$/.test(m.dateFin || '') ? esc(m.dateFin) : ''}" onchange="updateMemberCell('${week.id}',${i},'dateFin',this.value)">` : fmtDateShort(m.dateFin)}</td>
-    <td>${editStruct ? textInput(m.paiement || '', `updateMemberCell('${week.id}',${i},'paiement',this.value)`, 130) : esc(m.paiement || '—')}</td>
-    ${editStruct ? `<td><button class="icon-btn xs" type="button" onclick="removeMemberRow('${week.id}',${i})" aria-label="Supprimer la ligne">${icon('x', 'sm')}</button></td>` : ''}
-  </tr>`).join('');
-  return `<div class="card table-card"><div class="table-scroll"><table class="tbl"><thead><tr><th>Nom</th><th>Type</th><th>Début</th><th>Fin</th><th>Paiement</th>${editStruct ? '<th></th>' : ''}</tr></thead><tbody>
-    ${rows || `<tr><td colspan="6" class="muted">Aucun membre enregistré cette semaine.</td></tr>`}
-  </tbody></table></div></div>`;
-}
 
 /* ---------- Mises à jour ---------- */
 function updateRevenueCell(weekId, idx, field, value) {
@@ -289,16 +264,9 @@ function updateCommissionPay(weekId, userId, field, value) {
   logActivity('Salaire modifié', `${userLabel(userId)} (commission) — Semaine ${w.numero}`);
   refresh();
 }
-function updateMemberCell(weekId, idx, field, value) {
-  const w = weekById(weekId);
-  w.members[idx][field] = value;
-  logActivity('Membre modifié', `${w.members[idx].nom} — Semaine ${w.numero}`);
-  refresh();
-}
 function addRevenueRow(weekId) { weekById(weekId).revenues.push({ categorie: 'Nouvelle catégorie', lun: 0, mar: 0, mer: 0, jeu: 0, ven: 0, sam: 0, dim: 0, autre: 0 }); saveSoon(); refresh(); }
 function addExpenseRow(weekId) { weekById(weekId).expenses.push({ categorie: 'Nouveau poste', montant: 0, observations: '' }); saveSoon(); refresh(); }
 function addSalaryRow(weekId) { const w = weekById(weekId); (w.salaries = w.salaries || []).push({ id: uid('sal'), nom: '', poste: '', montant: 0, dateVersement: '', valide: false }); saveSoon(); refresh(); }
-function addMemberRow(weekId) { const w = weekById(weekId); (w.members = w.members || []).push({ id: uid('mem'), nom: '', type: 'Green', dateDebut: '', dateFin: '', paiement: '' }); saveSoon(); refresh(); }
 function removeRow(weekId, key, idx, label) {
   confirmAction(`Supprimer cette ligne (${label}) ?`, () => {
     weekById(weekId)[key].splice(idx, 1);
@@ -308,7 +276,6 @@ function removeRow(weekId, key, idx, label) {
 function removeRevenueRow(w, i) { removeRow(w, 'revenues', i, 'revenu'); }
 function removeExpenseRow(w, i) { removeRow(w, 'expenses', i, 'dépense'); }
 function removeSalaryRow(w, i) { removeRow(w, 'salaries', i, 'salaire'); }
-function removeMemberRow(w, i) { removeRow(w, 'members', i, 'membre'); }
 
 function openCreateWeekModal() {
   const weeks = [...DB.accountingWeeks].sort((a, b) => a.numero - b.numero);
@@ -390,10 +357,7 @@ function exportWeekCSV(weekId) {
   const pay = w.commissionPay || {};
   weekCommissionRows(w).forEach((x) => { const p = pay[x.userId] || {}; lines.push([q(userLabel(x.userId)), q(`Commission ${x.taux} sur ${x.total} $ de ventes${x.surplus ? ` (max ${x.plafond} $ atteint : ${x.surplus} $ restent à la compta)` : ''}`), x.commission, q(p.dateVersement), q(p.valide ? 'Oui' : 'Non')].join(';')); });
   (w.salaries || []).forEach((s) => lines.push([q(s.nom), q(s.poste), Number(s.montant) || 0, q(s.dateVersement), q(s.valide ? 'Oui' : 'Non')].join(';')));
-  lines.push('');
-  lines.push(['Membre', 'Type', 'Début', 'Fin', 'Paiement'].map(q).join(';'));
-  comptaSales(w, 'carteVip').forEach((s) => lines.push([q(s.client), q(tierName(s.categorie)), q(s.date), q(s.date ? shiftISO(s.date, 6) : ''), q(`Fiche Cartes VIP — ${userLabel(s.userId)}`)].join(';')));
-  (w.members || []).forEach((m) => lines.push([q(m.nom), q(tierName(m.type)), q(m.dateDebut), q(m.dateFin), q(m.paiement)].join(';')));
+  // la liste des membres (qui a quelle carte VIP) est dans l'onglet Topo ; la recette des cartes reste dans « Cartes membres »
   const fiche = comptaSales(w).sort((a, b) => ((a.date || '') + (a.createdAt || '')).localeCompare((b.date || '') + (b.createdAt || '')));
   if (fiche.length) {
     lines.push('');
