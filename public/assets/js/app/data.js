@@ -522,8 +522,76 @@ function weekTotals(week) {
   const recettes = (week.revenues || []).reduce((s, r) => s + revenueRowTotal(r, week), 0);
   const charges = (week.expenses || []).reduce((s, e) => s + expenseValue(week, e), 0);
   const benefice = recettes - charges;
-  const nouveauSolde = (Number(week.soldePrecedent) || 0) + benefice;
+  const nouveauSolde = soldePrecedentOf(week) + benefice;
   return { recettes, charges, benefice, nouveauSolde };
+}
+/* Semaine comptable d'avant (numéro précédent) */
+function previousWeek(week) {
+  const n = Number(week && week.numero) || 0;
+  return (DB.accountingWeeks || []).filter((w) => w && w !== week && !w.resume && (Number(w.numero) || 0) < n)
+    .sort((a, b) => b.numero - a.numero)[0] || null;
+}
+/* Solde précédent du coffre : reporté tout seul depuis le nouveau solde de la semaine d'avant (soldeAuto :
+   semaines ouvertes automatiquement le lundi à 6h), même si on modifie encore la semaine d'avant ; sinon le
+   montant saisi. Calcul gardé le temps d'un affichage (les semaines s'enchaînent). */
+let SOLDE_MEMO = null;
+function soldePrecedentOf(week) {
+  const typed = Number(week && week.soldePrecedent) || 0;
+  if (!week || !week.soldeAuto) return typed;
+  if (!SOLDE_MEMO) { SOLDE_MEMO = new Map(); setTimeout(() => { SOLDE_MEMO = null; }, 0); }
+  if (SOLDE_MEMO.has(week)) return SOLDE_MEMO.get(week);
+  SOLDE_MEMO.set(week, typed); // garde-fou
+  const prev = previousWeek(week);
+  const v = prev ? round2(weekTotals(prev).nouveauSolde) : typed;
+  SOLDE_MEMO.set(week, v);
+  return v;
+}
+/* Semaine comptable de la soirée en cours (sinon la dernière) */
+function liveWeek() {
+  const d = serviceDay();
+  const weeks = [...(DB.accountingWeeks || [])].sort((a, b) => a.numero - b.numero);
+  return weeks.find((w) => w.dateDebut && w.dateFin && w.dateDebut <= d && d <= w.dateFin) || weeks[weeks.length - 1] || null;
+}
+/* Semaines à créer pour que la soirée `today` ait sa semaine : du lundi au dimanche, numéro suivant, mêmes
+   lignes que la semaine d'avant (à 0), coffre reporté (soldeAuto). Même calcul que weeksToCreate dans api.mjs. */
+function weeksToCreate(weeks, today) {
+  const dated = weeks.filter((w) => w && /^\d{4}-\d{2}-\d{2}$/.test(w.dateDebut || '') && /^\d{4}-\d{2}-\d{2}$/.test(w.dateFin || ''));
+  if (dated.some((w) => w.dateDebut <= today && today <= w.dateFin)) return [];
+  const before = dated.filter((w) => w.dateFin < today).sort((a, b) => a.dateFin.localeCompare(b.dateFin));
+  const prev = before[before.length - 1] || null;
+  let start = prev ? shiftISO(prev.dateFin, 1) : mondayOf(today);
+  const floor = shiftISO(mondayOf(today), -7 * 52);
+  if (start < floor) start = floor;
+  const later = dated.map((w) => w.dateDebut).filter((d) => d > today).sort()[0];
+  const revRows = prev && (prev.revenues || []).length ? prev.revenues.map((r) => String((r && r.categorie) || '').trim()).filter(Boolean) : REVENUE_CATS;
+  const expRows = prev && (prev.expenses || []).length ? prev.expenses.map((e) => String((e && e.categorie) || '').trim()).filter(Boolean) : EXPENSE_CATS;
+  let num = weeks.reduce((m, w) => Math.max(m, Number(w && w.numero) || 0), 0);
+  const out = [];
+  while (start <= today && out.length < 60) {
+    let end = shiftISO(mondayOf(start), 6);
+    if (later && end >= later) end = shiftISO(later, -1);
+    out.push({
+      id: 'wk_' + start, numero: ++num, dateDebut: start, dateFin: end, soldePrecedent: 0, soldeAuto: true, auto: true,
+      statutValidation: 'À valider', valideParId: null, dateValidation: '',
+      revenues: revRows.map((c) => ({ categorie: c, lun: 0, mar: 0, mer: 0, jeu: 0, ven: 0, sam: 0, dim: 0, autre: 0 })),
+      expenses: expRows.map((c) => ({ categorie: c, montant: 0, observations: '' })),
+      salaries: [], members: [], menuSales: {}, observations: '', documentSource: '',
+    });
+    start = shiftISO(end, 1);
+  }
+  return out;
+}
+/* Mode local : chaque lundi à 6h, la nouvelle semaine comptable s'ouvre (à la connexion et pendant que l'espace
+   est ouvert). En base partagée, c'est le serveur (ensureWeeks dans api.mjs). Renvoie le nombre de semaines créées. */
+function autoWeeks() {
+  if (!DB || isShared()) return 0;
+  DB.accountingWeeks = DB.accountingWeeks || [];
+  const add = weeksToCreate(DB.accountingWeeks, serviceDay());
+  if (!add.length) return 0;
+  DB.accountingWeeks.push(...add);
+  logActivity('Nouvelle semaine comptable', add.map((w) => `Semaine ${w.numero} (${fmtDateShort(w.dateDebut)} → ${fmtDateShort(w.dateFin)})`).join(', ') + (add.length > 1 ? ' — ouvertes' : ' — ouverte') + ' automatiquement (lundi 6h)');
+  saveSoon();
+  return add.length;
 }
 function menuSalesTotal(week) {
   const sales = week.menuSales || {};

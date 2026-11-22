@@ -7,15 +7,24 @@
    - Gouvernement / Fisc : lecture seule (contrôle fiscal)
    - Employés : pas d'accès (ils voient leurs ventes et leur salaire dans l'onglet Ventes ;
      le serveur ne leur envoie qu'un résumé des semaines, sans les montants)
+   Semaines : du lundi au dimanche. Chaque lundi à 6h, la semaine suivante s'ouvre toute seule
+   (serveur : ensureWeeks dans api.mjs ; mode local : autoWeeks dans data.js), avec le coffre reporté
+   de la semaine d'avant (soldeAuto). Les semaines d'avant restent modifiables.
    ===================================================================== */
 
 let currentWeekId = null;
+let weekFollow = true; // on suit la semaine en cours (passe toute seule à la nouvelle le lundi à 6h)
 function weekById(id) { return DB.accountingWeeks.find((w) => w.id === id); }
+/* Semaine choisie à la main : on y reste (sauf si c'est la semaine en cours, qu'on continue de suivre) */
+function pickWeek(id) { currentWeekId = id; const live = liveWeek(); weekFollow = !!live && live.id === id; }
 
 function renderComptabilite() {
   const weeks = [...DB.accountingWeeks].sort((a, b) => a.numero - b.numero);
-  if (!currentWeekId || !weekById(currentWeekId)) currentWeekId = weeks.length ? weeks[weeks.length - 1].id : null;
+  const curWeek = liveWeek();
+  if (!currentWeekId || !weekById(currentWeekId) || weekFollow) { currentWeekId = curWeek ? curWeek.id : null; weekFollow = true; }
   const week = weekById(currentWeekId);
+  const isLive = !!(week && curWeek && week.id === curWeek.id);
+  const ended = !!(week && week.dateFin && week.dateFin < serviceDay());
   const editStruct = canEditFinance();
   const canFill = canFillFinance();
   // Ligne « Hébergements » (fiche hospitalité) ajoutée aux semaines créées avant elle, juste sous « Entrées soirées »
@@ -29,10 +38,13 @@ function renderComptabilite() {
   if (week && canSeeFinance()) actions += `<button class="btn btn-sm" type="button" onclick="exportWeekCSV('${week.id}')">${icon('download', 'sm')}Export CSV</button><button class="btn btn-sm" type="button" onclick="window.print()">${icon('printer', 'sm')}Imprimer</button>`;
   if (isDirection()) actions += `<button class="btn btn-sm btn-sun" type="button" onclick="openCreateWeekModal()" data-magnetic="0.2">${icon('plus', 'sm')}Nouvelle semaine</button>`;
 
+  const when = !week ? '' : isLive
+    ? ` · <b>semaine en cours</b> : la suivante s'ouvre toute seule lundi à 6h.`
+    : ended ? ` · semaine terminée, toujours modifiable (les soirées se corrigent aussi dans l'onglet Ventes).` : '';
   let html = pageHead('Comptabilité', week ? `Semaine ${week.numero}` : 'Comptabilité',
-    week ? `Du ${fmtDateShort(week.dateDebut)} au ${fmtDateShort(week.dateFin)} · remplissez les cases, les totaux se calculent automatiquement — comme sur le fichier Excel.` : '', actions);
+    week ? `Du ${fmtDateShort(week.dateDebut)} au ${fmtDateShort(week.dateFin)}${when || '.'} Remplissez les cases, les totaux se calculent automatiquement — comme sur le fichier Excel.` : '', actions);
 
-  html += `<div class="pill-row" role="tablist" aria-label="Semaines comptables">${weeks.map((w) => `<button class="pill plain ${w.id === currentWeekId ? 'is-active' : ''}" type="button" role="tab" aria-selected="${w.id === currentWeekId}" onclick="selectWeek('${w.id}')">S${w.numero}${w.statutValidation === 'Validé' ? '' : ' •'}</button>`).join('')}</div>`;
+  html += `<div class="pill-row" role="tablist" aria-label="Semaines comptables">${weeks.map((w) => `<button class="pill plain ${w.id === currentWeekId ? 'is-active' : ''}" type="button" role="tab" aria-selected="${w.id === currentWeekId}" onclick="selectWeek('${w.id}')">S${w.numero}${curWeek && w.id === curWeek.id ? ' · en cours' : w.statutValidation === 'Validé' ? '' : ' •'}</button>`).join('')}</div>`;
   if (!week) return html + emptyState('📊', 'Aucune semaine comptable', 'Créez une première semaine comptable pour commencer.');
 
   if (!editStruct && canFill) html += `<div class="hint">${icon('sun', 'sm')}<span>Vous pouvez remplir les montants. L'ajout de lignes, la validation et la création d'une semaine restent réservés à la direction et à la comptabilité.</span></div>`;
@@ -43,7 +55,7 @@ function renderComptabilite() {
     ${statTile('Total recettes', 'trend', t.recettes, { money: true })}
     ${statTile('Total charges', 'coins', t.charges, { money: true })}
     ${statTile('Bénéfice net', 'sun', t.benefice, { money: true, tone: t.benefice >= 0 ? 'pos' : 'neg' })}
-    ${statTile('Solde du coffre', 'wallet', t.nouveauSolde, { money: true, cls: 'dark', foot: `précédent : ${fmtMoney(Number(week.soldePrecedent) || 0)}` })}
+    ${statTile('Solde du coffre', 'wallet', t.nouveauSolde, { money: true, cls: 'dark', foot: `précédent : ${fmtMoney(soldePrecedentOf(week))}` })}
   </div>`;
 
   // Graphiques de la semaine
@@ -69,9 +81,14 @@ function renderComptabilite() {
     ${renderRevenueTable(week, editStruct, canFill)}</section>`;
   // Charges
   html += `<section class="section">${sectionHead('Charges &amp; dépenses', null, editStruct ? `<button class="btn btn-xs" type="button" onclick="addExpenseRow('${week.id}')">${icon('plus', 'sm')}Ligne</button>` : '')}${renderExpenseTable(week, editStruct, canFill)}</section>`;
-  // Coffre
+  // Coffre (solde précédent reporté tout seul de la semaine d'avant, ou saisi à la main)
+  const prevWeek = previousWeek(week);
+  const solde = soldePrecedentOf(week);
+  const soldeNote = week.soldeAuto && prevWeek
+    ? `<small class="coffre-note">${icon('refresh', 'sm')}Reporté de la semaine ${prevWeek.numero}</small>`
+    : (editStruct && prevWeek ? `<button class="link-btn coffre-note" type="button" onclick="resumeSoldeAuto('${week.id}')">Reprendre le solde de la semaine ${prevWeek.numero}</button>` : '');
   html += `<section class="section">${sectionHead('Coffre')}<div class="coffre stagger">
-    <div class="card"><span class="lbl">Solde précédent</span>${editStruct ? `<input class="cell-in" type="number" step="0.01" value="${Number(week.soldePrecedent) || 0}" onchange="updateSoldePrecedent('${week.id}',this.value)" onfocus="this.select()">` : `<span class="v">${fmtMoney(Number(week.soldePrecedent) || 0)}</span>`}</div>
+    <div class="card"><span class="lbl">Solde précédent</span>${editStruct ? `<input class="cell-in" type="number" step="0.01" value="${solde}" onchange="updateSoldePrecedent('${week.id}',this.value)" onfocus="this.select()" aria-label="Solde précédent du coffre">` : `<span class="v">${fmtMoney(solde)}</span>`}${soldeNote}</div>
     <div class="card"><span class="lbl">+ Recettes</span><span class="v">${fmtMoney(t.recettes)}</span></div>
     <div class="card"><span class="lbl">− Charges</span><span class="v">${fmtMoney(t.charges)}</span></div>
     <div class="card"><span class="lbl">= Nouveau solde</span><span class="v" style="color:var(--sun-text)">${fmtMoney(t.nouveauSolde)}</span></div>
@@ -97,7 +114,7 @@ function renderComptabilite() {
   </div></section>`;
   return html;
 }
-function selectWeek(id) { currentWeekId = id; renderPage(true); }
+function selectWeek(id) { pickWeek(id); renderPage(true); }
 
 /* ---------- Tableaux ---------- */
 function renderRevenueTable(week, editStruct, canFill) {
@@ -240,7 +257,17 @@ function updateExpenseCell(weekId, idx, field, value) {
 function updateSoldePrecedent(weekId, value) {
   const w = weekById(weekId);
   w.soldePrecedent = Number(value) || 0;
+  w.soldeAuto = false; // saisi à la main : il ne suit plus la semaine d'avant
   logActivity('Solde précédent modifié', 'Semaine ' + w.numero);
+  refresh();
+}
+/* Revenir au report automatique du solde de la semaine d'avant */
+function resumeSoldeAuto(weekId) {
+  const w = weekById(weekId);
+  if (!w || !canEditFinance()) return;
+  w.soldeAuto = true;
+  logActivity('Solde précédent modifié', `Semaine ${w.numero} — reporté de la semaine d'avant`);
+  toast(`Le solde précédent suit de nouveau la semaine d'avant (${fmtMoney(soldePrecedentOf(w))}).`, 'success');
   refresh();
 }
 function updateMenuSale(weekId, itemId, value) {
@@ -295,21 +322,22 @@ function openCreateWeekModal() {
       <div class="field"><label for="nWkStart">Date de début</label><input class="input" id="nWkStart" type="date" value="${start}"></div>
       <div class="field"><label for="nWkEnd">Date de fin</label><input class="input" id="nWkEnd" type="date" value="${end}"></div>
     </div>
-    <div class="field"><label for="nWkPrev">Solde précédent du coffre ($)</label><input class="input" id="nWkPrev" type="number" value="${prev}"></div>
-    <p class="field-hint">Les catégories habituelles de revenus et de charges seront pré-remplies à 0 : il ne restera plus qu'à remplir les cases.</p>`,
+    <div class="field"><label for="nWkPrev">Solde précédent du coffre ($)</label><input class="input" id="nWkPrev" type="number" value="" placeholder="Reporté tout seul : ${esc(fmtMoney(prev))}"></div>
+    <p class="field-hint">Les semaines s'ouvrent déjà toutes seules chaque lundi à 6h : créez-en une à la main seulement pour une période particulière. Laissez le solde vide pour qu'il suive la semaine d'avant. Les catégories habituelles de revenus et de charges seront pré-remplies à 0 : il ne restera plus qu'à remplir les cases.</p>`,
     `<button class="btn btn-sm btn-ghost" type="button" data-close-modal>Annuler</button><button class="btn btn-sm btn-sun" type="button" onclick="createWeek()">Créer la semaine</button>`);
 }
 function createWeek() {
   const numero = Number(document.getElementById('nWkNum').value);
   if (!numero) { toast('Indiquez un numéro de semaine.', 'error'); return; }
   if (DB.accountingWeeks.some((w) => w.numero === numero)) { toast(`La semaine ${numero} existe déjà.`, 'error'); return; }
+  const prevRaw = document.getElementById('nWkPrev').value.trim();
   const w = {
     id: uid('wk'), numero, dateDebut: document.getElementById('nWkStart').value, dateFin: document.getElementById('nWkEnd').value,
-    soldePrecedent: Number(document.getElementById('nWkPrev').value) || 0, statutValidation: 'À valider', valideParId: null, dateValidation: '',
+    soldePrecedent: Number(prevRaw) || 0, soldeAuto: prevRaw === '', statutValidation: 'À valider', valideParId: null, dateValidation: '',
     revenues: defaultRevenueRows(), expenses: defaultExpenseRows(), salaries: [], members: [], menuSales: {}, observations: '', documentSource: '',
   };
   DB.accountingWeeks.push(w);
-  currentWeekId = w.id;
+  pickWeek(w.id);
   logActivity('Comptabilité créée', 'Semaine ' + numero);
   toast('Semaine comptable créée. Remplissez les cases.', 'success'); closeModal(); renderPage(true);
 }
@@ -349,7 +377,7 @@ function exportWeekCSV(weekId) {
   w.expenses.forEach((e) => lines.push([q(e.categorie), expenseValue(w, e), q((isSalaryExpense(w, e) && weekCommissionTotal(w) ? `dont ${weekCommissionTotal(w)} $ de commissions des ventes${weekSurplusTotal(w) ? ` (plafonnées : ${weekSurplusTotal(w)} $ au-delà des salaires maximums restent à la compta)` : ''}. ` : '') + (e.observations || ''))].join(';')));
   lines.push([q('TOTAL CHARGES'), t.charges].join(';'));
   lines.push('');
-  lines.push([q('Solde précédent'), Number(w.soldePrecedent) || 0].join(';'));
+  lines.push([q('Solde précédent'), soldePrecedentOf(w)].join(';'));
   lines.push([q('Bénéfice net'), t.benefice].join(';'));
   lines.push([q('Nouveau solde'), t.nouveauSolde].join(';'));
   lines.push('');

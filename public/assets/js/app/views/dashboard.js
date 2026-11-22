@@ -75,7 +75,7 @@ function renderDashboard() {
     const upcoming = DB.events.filter((e) => e.date >= today).length;
     const toValidate = DB.attendances.filter((a) => a.statut === 'À valider').length;
     const weeks = [...DB.accountingWeeks].sort((a, b) => a.numero - b.numero);
-    const latest = weeks[weeks.length - 1];
+    const latest = liveWeek() || weeks[weeks.length - 1]; // semaine de la soirée en cours (ouverte le lundi à 6h)
     const newRdv = navAllowed('privatisations') ? DB.rdv.filter((r) => r.statut === 'Nouvelle').length : null;
 
     html += '<div class="stats-row stagger">';

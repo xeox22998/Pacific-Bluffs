@@ -493,6 +493,9 @@ button.ev-row:hover{background:var(--surface-2);transform:translateX(4px)}
 .coffre .v{font:600 24px/1 var(--font-display);letter-spacing:-.04em}
 .coffre .cell-in{height:40px;font:600 18px var(--font-display);width:100%;text-align:left}
 .coffre .op{align-self:flex-start;font-size:12px;color:var(--muted)}
+.coffre .coffre-note{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;font-size:12px;color:var(--muted);text-align:left}
+.coffre .coffre-note .i{width:13px;height:13px}
+.coffre button.coffre-note{color:var(--sun-text)}
 
 /* ===================== VENTES (fiches de ventes + dossier salaires) ===================== */
 /* Cases de la compta remplies par les fiches de ventes */

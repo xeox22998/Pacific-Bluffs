@@ -459,6 +459,7 @@ function importBackup(input) {
       logActivity('Sauvegarde importée', file.name);
       upgradeTaux(); // ancienne sauvegarde : ventes de l'encadrement à 35 % et salaires maximums
       upgradeAvantages(); // … et cartes VIP reprises dans le topo
+      autoWeeks();        // … et semaines comptables manquantes depuis la sauvegarde
       toast('Sauvegarde importée.', 'success'); renderShell(); renderPage(true);
     }, 'Importer');
   };

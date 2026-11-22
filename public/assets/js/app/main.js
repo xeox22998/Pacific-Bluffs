@@ -160,6 +160,7 @@ function enterApp(animated) {
     upgradeCarte();                                          // nouvelle carte : remplace l'ancienne enregistrée
     upgradeTaux();                                           // encadrement à 35 % + salaires max (mode local ; le serveur le fait en base partagée)
     upgradeAvantages();                                      // cartes VIP déjà vendues → topo (mode local ; idem)
+    autoWeeks();                                             // lundi 6h : nouvelle semaine comptable (mode local ; idem)
     syncAllRdv();                                            // privatisations datées → soirées privées au planning
     renderShell();
     renderPage(true);
@@ -301,7 +302,7 @@ function runSearch() {
   if (emp.length) html += `<div class="sr-group"><h6>Employés</h6>${emp.map((u) => `<button class="sr-item" type="button" onclick="hideSearch();goPage('equipe');setTimeout(()=>openEmployeeSheet('${u.id}'),260)">${avatarHtml(u, 'sm')}<span>${esc(fullName(u))}<small>${esc(roleLabel(u))}</small></span></button>`).join('')}</div>`;
   if (evs.length) html += `<div class="sr-group"><h6>Soirées</h6>${evs.map((e) => `<button class="sr-item" type="button" onclick="hideSearch();goPage('programme');setTimeout(()=>openEventDetail('${e.id}'),260)">${icon('mic', 'sm')}<span>${esc(e.nom)}<small>${fmtDate(e.date)}</small></span></button>`).join('')}</div>`;
   if (rdvs.length) html += `<div class="sr-group"><h6>Privatisations</h6>${rdvs.map((r) => `<button class="sr-item" type="button" onclick="hideSearch();goPage('privatisations');setTimeout(()=>openRdv('${r.id}'),260)">${icon('party', 'sm')}<span>${esc(r.nom)}<small>${esc(r.ref)} · ${esc(r.statut)}</small></span></button>`).join('')}</div>`;
-  if (weeks.length) html += `<div class="sr-group"><h6>Comptabilité</h6>${weeks.map((w) => `<button class="sr-item" type="button" onclick="hideSearch();currentWeekId='${w.id}';goPage('comptabilite')">${icon('wallet', 'sm')}<span>Semaine ${w.numero}<small>${fmtDateShort(w.dateDebut)} → ${fmtDateShort(w.dateFin)}</small></span></button>`).join('')}</div>`;
+  if (weeks.length) html += `<div class="sr-group"><h6>Comptabilité</h6>${weeks.map((w) => `<button class="sr-item" type="button" onclick="hideSearch();pickWeek('${w.id}');goPage('comptabilite')">${icon('wallet', 'sm')}<span>Semaine ${w.numero}<small>${fmtDateShort(w.dateDebut)} → ${fmtDateShort(w.dateFin)}</small></span></button>`).join('')}</div>`;
   if (items.length) html += `<div class="sr-group"><h6>La carte</h6>${items.map((m) => `<button class="sr-item" type="button" onclick="hideSearch();goPage('carte')"><span class="doc-ic" style="width:30px;height:30px;font-size:15px">${m.emoji || '•'}</span><span>${esc(m.nom)}<small>${esc(m.categorie)} · ${fmtMoney(m.prix)}</small></span></button>`).join('')}</div>`;
   if (docs.length) html += `<div class="sr-group"><h6>Documents</h6>${docs.map((d) => `<button class="sr-item" type="button" onclick="hideSearch();goPage('documents');setTimeout(()=>openDocViewer('${d.id}'),260)">${icon('file', 'sm')}<span>${esc(d.nom)}<small>${esc(d.categorie)}</small></span></button>`).join('')}</div>`;
   panel.innerHTML = html || '<p class="sr-empty">Aucun résultat.</p>';
@@ -349,6 +350,8 @@ function startClock() {
   const tick = () => {
     const n = new Date();
     $id('clock').innerHTML = `${icon('clock', 'sm')}${n.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} · <b>${nowHM()}</b>`;
+    // mode local, espace resté ouvert : le lundi à 6h, la nouvelle semaine comptable s'ouvre (base partagée : le serveur)
+    if (autoWeeks() && !userIsBusy()) renderPage(false);
   };
   tick();
   clearInterval(clockTimer);

@@ -349,6 +349,67 @@ async function upgradeAvantages(store) {
   }
   await bump(store, { avV: AV_VERSION });
 }
+/* ---------------- Semaines comptables automatiques (22/11/2026) ----------------
+   Une semaine comptable = les soirées du lundi au dimanche (journées de service de 6h à 6h, comme les salaires).
+   Chaque lundi à 6h (heure de Paris), la semaine suivante s'ouvre toute seule : numéro suivant, mêmes lignes de
+   recettes et de charges que la semaine d'avant (montants à 0), solde du coffre reporté automatiquement
+   (soldeAuto : l'espace staff reprend le nouveau solde de la semaine d'avant, même si on la modifie encore).
+   Les semaines d'avant restent modifiables. Vérifié au chargement des données et à chaque vérification de version
+   (toutes les 15 s) ; meta.weeksUntil (fin de la dernière semaine) évite de relire la comptabilité entre-temps. */
+const REVENUE_CATS = ['Entrées soirées', 'Hébergements', 'Bar & boissons', 'Service bouteille', 'Cartes membres', 'Événements privés', 'Contrats', 'Gouvernement', 'Export'];
+const EXPENSE_CATS = ['Salaires staff', 'Approvisionnement bar', 'Entretien & maintenance', 'Autres dépenses'];
+const DAY_KEYS = ['lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'];
+const serviceDayParis = () => { const c = parisClock(); return c.min < 360 ? shiftISO(c.date, -1) : c.date; };
+const mondayISO = (iso) => shiftISO(iso, -((new Date(iso + 'T12:00:00Z').getUTCDay() + 6) % 7));
+const isDatedWeek = (w) => !!w && DATE_RE.test(w.dateDebut || '') && DATE_RE.test(w.dateFin || '');
+/* Semaines à créer pour que la journée `today` ait sa semaine (aucune si elle en a déjà une) */
+function weeksToCreate(weeks, today) {
+  const dated = weeks.filter(isDatedWeek);
+  if (dated.some((w) => w.dateDebut <= today && today <= w.dateFin)) return [];
+  const before = dated.filter((w) => w.dateFin < today).sort((a, b) => a.dateFin.localeCompare(b.dateFin));
+  const prev = before[before.length - 1] || null;
+  let start = prev ? shiftISO(prev.dateFin, 1) : mondayISO(today);
+  const floor = shiftISO(mondayISO(today), -7 * 52); // après une très longue pause : un an au plus
+  if (start < floor) start = floor;
+  const later = dated.map((w) => w.dateDebut).filter((d) => d > today).sort()[0]; // semaine déjà prévue plus tard
+  const revRows = prev && Array.isArray(prev.revenues) && prev.revenues.length ? prev.revenues.map((r) => clean(r && r.categorie, 80)).filter(Boolean) : REVENUE_CATS;
+  const expRows = prev && Array.isArray(prev.expenses) && prev.expenses.length ? prev.expenses.map((e) => clean(e && e.categorie, 80)).filter(Boolean) : EXPENSE_CATS;
+  let num = weeks.reduce((m, w) => Math.max(m, Number(w && w.numero) || 0), 0);
+  const out = [];
+  while (start <= today && out.length < 60) {
+    let end = shiftISO(mondayISO(start), 6); // jusqu'au dimanche
+    if (later && end >= later) end = shiftISO(later, -1);
+    out.push({
+      id: 'wk_' + start, numero: ++num, dateDebut: start, dateFin: end, soldePrecedent: 0, soldeAuto: true, auto: true,
+      statutValidation: 'À valider', valideParId: null, dateValidation: '',
+      revenues: revRows.map((c) => ({ categorie: c, ...Object.fromEntries(DAY_KEYS.map((k) => [k, 0])), autre: 0 })),
+      expenses: expRows.map((c) => ({ categorie: c, montant: 0, observations: '' })),
+      salaries: [], members: [], menuSales: {}, observations: '', documentSource: '',
+    });
+    start = shiftISO(end, 1);
+  }
+  return out;
+}
+async function ensureWeeks(store, meta) {
+  meta = meta || await readMeta(store);
+  const today = serviceDayParis();
+  if (!meta.initialized || (meta.weeksUntil && meta.weeksUntil >= today)) return meta;
+  const weeks = await col(store, 'accountingWeeks');
+  const add = weeksToCreate(weeks, today);
+  if (add.length) {
+    weeks.push(...add);
+    await putCol(store, 'accountingWeeks', weeks);
+    await addLog(store, null, 'Nouvelle semaine comptable', add.map((w) => `Semaine ${w.numero} (${w.dateDebut.slice(8)}/${w.dateDebut.slice(5, 7)} → ${w.dateFin.slice(8)}/${w.dateFin.slice(5, 7)})`).join(', ') + (add.length > 1 ? ' — ouvertes' : ' — ouverte') + ' automatiquement (lundi 6h)');
+  }
+  // fin de la semaine qui contient aujourd'hui : rien à revérifier avant
+  const cur = weeks.filter(isDatedWeek).find((w) => w.dateDebut <= today && today <= w.dateFin);
+  const weeksUntil = cur ? cur.dateFin : today;
+  if (add.length) return bump(store, { weeksUntil });
+  const fresh = await readMeta(store); // sans changer la version : personne n'a besoin de recharger
+  fresh.weeksUntil = weeksUntil;
+  await store.setJSON('meta', fresh);
+  return fresh;
+}
 async function loadAll(store) {
   const [users, events, attendances, accountingWeeks, documents, activityLogs, rdv, barSales, joursSansSoiree, avantages, postes, menu, couleurs, cartes, cocons, meta] = await Promise.all([
     col(store, 'users'), col(store, 'events'), col(store, 'attendances'), col(store, 'accountingWeeks'), col(store, 'documents'),
@@ -524,6 +585,7 @@ function weekForEmploye(w, u) {
 async function routeData(store, a) {
   await upgradeRates(store);
   await upgradeAvantages(store);
+  await ensureWeeks(store); // lundi 6h : la nouvelle semaine comptable
   const all = await loadAll(store);
   const role = a.user.role;
   const employe = role === 'EMPLOYE';
@@ -914,7 +976,8 @@ async function routeImport(req, store, a) {
   await addLog(store, me.id, 'Sauvegarde importée', `${users.length} compte(s), ${d.accountingWeeks.length} semaine(s)`);
   // ancienne sauvegarde (avant l'encadrement à 35 % et les plafonds, avant l'onglet Topo) : ses ventes et ses cartes VIP
   // seront mises à jour au prochain chargement
-  const meta = await bump(store, { initialized: true, tauxV: Number(d.tauxV) || 0, avV: Number(d.avV) || 0 });
+  // weeksUntil remis à zéro : les semaines manquantes depuis la sauvegarde sont créées au prochain chargement
+  const meta = await bump(store, { initialized: true, tauxV: Number(d.tauxV) || 0, avV: Number(d.avV) || 0, weeksUntil: '' });
   return json({ ok: true, version: meta.version });
 }
 
@@ -932,7 +995,7 @@ async function routeReset(store, a) {
   await store.delete('col:cartes');
   await store.delete('col:cocons');
   await store.setJSON('sessions', { [a.token]: { userId: a.user.id, exp: Date.now() + SESSION_MS } });
-  const meta = await bump(store, { initialized: false });
+  const meta = await bump(store, { initialized: false, weeksUntil: '' });
   return json({ ok: true, version: meta.version });
 }
 
@@ -957,7 +1020,8 @@ export default async (req) => {
     const a = await authenticate(req, store);
     if (!a) return fail(401, 'Session expirée : reconnectez-vous.');
     if (route === 'data' && method === 'GET') return await routeData(store, a);
-    if (route === 'version' && method === 'GET') return json({ version: (await readMeta(store)).version || 0 });
+    // vérification toutes les 15 s : ouvre aussi la nouvelle semaine comptable le lundi à 6h (sans relire la compta avant)
+    if (route === 'version' && method === 'GET') return json({ version: (await ensureWeeks(store)).version || 0 });
     if (route === 'sync' && method === 'POST') return await routeSync(req, store, a);
     if (route === 'poster' && method === 'POST') return await routePosterSet(req, store, a);
     if (route === 'photo' && method === 'POST') return await routePhotoSet(req, store, a);
