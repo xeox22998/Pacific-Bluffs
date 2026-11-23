@@ -14,7 +14,11 @@
      par semaine (plafond gardé sur la vente) : 14 000 $ managers et comptabilité,
      12 000 $ qualifiés, 10 000 $ non qualifiés et recrues, direction sans
      maximum ; le surplus n'est pas versé et reste dans la compta.
-   - Fiche « Récompenses » (après Cartes VIP, managers, comptabilité et
+   - Fiche « Export » (tout le staff) : on note le montant de chaque export.
+     Pas de commission : 1/3 du montant va au salaire de la semaine (compté
+     dans le salaire maximum), le montant entier dans la ligne « Export » de
+     la comptabilité.
+   - Fiche « Récompenses » (après les fiches de ventes, managers, comptabilité et
      direction seulement) : ce qu'un client a gagné gratuitement (carte VIP
      1 mois ou 1 semaine, escapade enchantée, séjour paradisiaque, bon de
      réduction de 25 %, soirée privée). Ni commission, ni recette : rien en
@@ -91,8 +95,8 @@ function renderVentes() {
   const actions = canCorrectSales() ? `<button class="btn btn-sm" type="button" onclick="exportDossierCSV()">${icon('download', 'sm')}Export du dossier</button>` : '';
   let html = pageHead('Ventes', mine ? 'Mes fiches de ventes' : (who ? `Ventes de ${esc(who)}` : 'Fiches de ventes'),
     `Notez chaque vente au moment où vous la faites : elle est enregistrée tout de suite, soirée par soirée. À <b>6h du matin</b>, les ventes de la soirée passent automatiquement ${navAllowed('comptabilite') ? 'dans la comptabilité et ' : ''}dans le dossier salaires. ${canSeeAllSales()
-      ? `Chaque vendeur touche une part de ses ventes (<b>${commissionRule()}</b>) : c'est son salaire de la semaine, calculé <b>du lundi 6h au lundi 6h</b>. Salaire maximum par semaine : <b>${capRule()}</b> ; ${SURPLUS_RULE}.${canFillFinance() ? ` Votre part : <b>${pctOf(myRate)}</b>, ${capTxt(myCap)}.` : ''}`
-      : `Vous touchez <b>${pctOf(myRate)}</b> de vos ventes${gradeOf(CURRENT_USER) ? ` (grade ${esc(gradeOf(CURRENT_USER).toLowerCase())})` : ''} : c'est votre salaire de la semaine, calculé <b>du lundi 6h au lundi 6h</b>, ${myCap ? `<b>${fmtMoney(myCap)} maximum</b> par semaine ; ${SURPLUS_RULE}` : 'sans maximum'}.`}`, actions);
+      ? `Chaque vendeur touche une part de ses ventes (<b>${commissionRule()}</b>) : c'est son salaire de la semaine, calculé <b>du lundi 6h au lundi 6h</b>. Pour les <b>exports</b>, pas de commission : <b>${EXPORT_SHARE} du montant</b> va au salaire. Salaire maximum par semaine : <b>${capRule()}</b> ; ${SURPLUS_RULE}.${canFillFinance() ? ` Votre part : <b>${pctOf(myRate)}</b>, ${capTxt(myCap)}.` : ''}`
+      : `Vous touchez <b>${pctOf(myRate)}</b> de vos ventes${gradeOf(CURRENT_USER) ? ` (grade ${esc(gradeOf(CURRENT_USER).toLowerCase())})` : ''} et <b>${EXPORT_SHARE} de vos exports</b> : c'est votre salaire de la semaine, calculé <b>du lundi 6h au lundi 6h</b>, ${myCap ? `<b>${fmtMoney(myCap)} maximum</b> par semaine ; ${SURPLUS_RULE}` : 'sans maximum'}.`}`, actions);
 
   if (!canFillFinance()) html += `<div class="hint">${icon('eye', 'sm')}<span>Consultation en lecture seule, à titre de contrôle fiscal.</span></div>`;
 
@@ -111,7 +115,7 @@ function renderVentes() {
   const maxFoot = pay.surplus > 0 ? ` · max atteint : ${fmtMoney(pay.surplus)} restent à la compta` : '';
   html += `<div class="stats-row stagger">
     ${statTile(mine ? 'Mes ventes ce soir' : 'Ventes ce soir', 'receipt', tonightTotal, { money: true, foot: `${tonight.length} vente${tonight.length > 1 ? 's' : ''}` })}
-    ${statTile(mine ? 'Ma part ce soir' : 'Part des vendeurs ce soir', 'coins', pay.pending, { money: true, foot: `${ratesText(tonight, scopeRate)} des ventes${pay.surplus > pay.surplusDone ? ' · max de la semaine atteint' : ''}` })}
+    ${statTile(mine ? 'Ma part ce soir' : 'Part des vendeurs ce soir', 'coins', pay.pending, { money: true, foot: `${shareText(tonight, scopeRate)}${pay.surplus > pay.surplusDone ? ' · max de la semaine atteint' : ''}` })}
     ${statTile(mine ? 'Mes ventes de la semaine' : 'Ventes de la semaine', 'trend', sumSales(week), { money: true, foot: salaryWeekLabel(mon) })}
     ${statTile(mine ? 'Mon salaire de la semaine' : 'Salaires de la semaine', 'wallet', pay.done, { money: true, cls: 'dark', foot: (pay.pending ? `+ ${fmtMoney(pay.pending)} à 6h` : 'versé en fin de semaine') + (mine && myCap ? ` · max ${fmtMoney(myCap)}` : '') + maxFoot })}
   </div>`;
@@ -135,13 +139,13 @@ function renderVentes() {
     return `<button class="bs-tab ${d === VENTE_DAY ? 'is-active' : ''}" type="button" onclick="selectVenteDay('${d}')"><b>${d === today ? 'Ce soir' : DAY_LABELS[(dt.getDay() + 6) % 7] + ' ' + dt.getDate()}</b><small>${t ? fmtMoney(t) : '—'}</small></button>`;
   }).join('')}</div>${canCorrectSales() ? `<input class="cell-in sale-date" type="date" max="${today}" value="${VENTE_DAY}" onchange="selectVenteDay(this.value)" aria-label="Choisir une autre soirée">` : ''}</div>`;
 
-  // Les trois fiches (+ Récompenses pour l'encadrement)
+  // Les fiches de ventes : carte, hospitalité, cartes VIP, export (+ Récompenses pour l'encadrement)
   const daySales = scopeSales(allSales().filter((s) => s.date === VENTE_DAY));
   const rewards = canEditTopo() ? dayRewards(VENTE_DAY) : null;
-  html += `<div class="sale-tabs${rewards ? ' has-4' : ''}" role="tablist" aria-label="Fiches de ventes">${SALE_TYPES.map((t) => {
+  html += `<div class="sale-tabs has-${SALE_TYPES.length + (rewards ? 1 : 0)}" role="tablist" aria-label="Fiches de ventes">${SALE_TYPES.map((t) => {
     const list = daySales.filter((s) => saleType(s) === t.id);
     return `<button class="sale-tab ${t.id === VENTE_TYPE ? 'is-active' : ''}" type="button" role="tab" aria-selected="${t.id === VENTE_TYPE}" onclick="selectVenteType('${t.id}')">
-      <span class="st-ic" aria-hidden="true">${t.emoji}</span><span><b>${t.label}</b><small>${list.length ? `${fmtMoney(sumSales(list))} · ${list.length} vente${list.length > 1 ? 's' : ''}` : 'Aucune vente'}</small></span></button>`;
+      <span class="st-ic" aria-hidden="true">${t.emoji}</span><span><b>${t.label}</b><small>${list.length ? `${fmtMoney(sumSales(list))} · ${list.length} ${t.id === 'export' ? 'export' : 'vente'}${list.length > 1 ? 's' : ''}` : t.id === 'export' ? 'Aucun export' : 'Aucune vente'}</small></span></button>`;
   }).join('')}${rewards ? `<button class="sale-tab ${VENTE_TYPE === 'recompense' ? 'is-active' : ''}" type="button" role="tab" aria-selected="${VENTE_TYPE === 'recompense'}" onclick="selectVenteType('recompense')">
       <span class="st-ic" aria-hidden="true">🎁</span><span><b>Récompenses</b><small>${rewards.length ? `${rewards.length} offerte${rewards.length > 1 ? 's' : ''}` : 'Aucune récompense'}</small></span></button>` : ''}</div>`;
   html += VENTE_TYPE === 'recompense' ? renderRewardSheet(rewards) : renderSaleSheet(daySales.filter((s) => saleType(s) === VENTE_TYPE));
@@ -158,7 +162,7 @@ function renderSaleSheet(list) {
   const open = VENTE_DAY === today;
   const total = sumSales(list);
   const showSeller = scopeLabel() !== 'me';
-  const isCard = VENTE_TYPE === 'carteVip', isHosp = VENTE_TYPE === 'hospitalite';
+  const isCard = VENTE_TYPE === 'carteVip', isHosp = VENTE_TYPE === 'hospitalite', isExp = VENTE_TYPE === 'export';
   const showClient = isCard || isHosp;
   const next = shiftISO(VENTE_DAY, 1);
   const noWeek = !open && !weekForDate(VENTE_DAY);
@@ -186,16 +190,19 @@ function renderSaleSheet(list) {
   if (canAddSaleOn(VENTE_DAY)) form = saleForm();
   else if (canFillFinance()) form = `<div class="sale-lock">${icon('shield', 'sm')}<span>${dayLockedByValidation(VENTE_DAY) ? 'Semaine validée par la direction : la fiche est verrouillée.' : 'Soirée passée à 6h : la fiche est verrouillée. Une erreur ? Prévenez la comptabilité, qui peut la corriger.'}</span></div>`;
 
+  // export : pas de commission, 1/3 du montant au salaire (pas de quantité ni de prix unitaire)
+  const partTxt = isExp ? `${EXPORT_SHARE} au salaire` : `part ${ratesText(rows, fallback)}`;
+  const qtyCols = isExp ? '' : '<th class="num">Qté</th><th class="num">Prix</th>';
   return `<div class="card sale-sheet">
-    <div class="bs-head"><div><b>${t.emoji} ${t.long} — ${esc(saleDayLabel(VENTE_DAY).toLowerCase())}</b><small>${esc(status)}</small></div>
-      <div class="bs-total">${fmtMoney(total)}<small>part ${ratesText(rows, fallback)} : ${fmtMoney(commissionOfSales(rows))}${capped ? ' · salaire max de la semaine atteint : le surplus reste à la compta' : ''}</small></div></div>
+    <div class="bs-head"><div><b>${t.emoji} ${t.long} — ${esc(saleDayLabel(VENTE_DAY).toLowerCase())}</b><small>${esc(status)}${isExp ? ` · pas de commission : ${EXPORT_SHARE} du montant de chaque export va au salaire de la semaine` : ''}</small></div>
+      <div class="bs-total">${fmtMoney(total)}<small>${partTxt} : ${fmtMoney(commissionOfSales(rows))}${capped ? ' · salaire max de la semaine atteint : le surplus reste à la compta' : ''}</small></div></div>
     ${form}
-    ${rows.length ? `<div class="table-scroll"><table class="tbl compact bs-tbl"><thead><tr><th>Heure</th>${showSeller ? '<th>Vendeur</th>' : ''}<th>${isCard ? 'Carte' : isHosp ? 'Prestation' : 'Article'}</th>${showClient ? '<th>Client</th>' : ''}<th class="num">Qté</th><th class="num">Prix</th><th class="num">Total</th><th class="num">Part${mixed ? '' : ' ' + ratesText(rows)}</th><th></th></tr></thead><tbody>
+    ${rows.length ? `<div class="table-scroll"><table class="tbl compact bs-tbl"><thead><tr><th>Heure</th>${showSeller ? '<th>Vendeur</th>' : ''}<th>${isCard ? 'Carte' : isHosp ? 'Prestation' : isExp ? 'Export' : 'Article'}</th>${showClient ? '<th>Client</th>' : ''}${qtyCols}<th class="num">${isExp ? 'Montant' : 'Total'}</th><th class="num">${isExp ? `Salaire (${EXPORT_SHARE})` : `Part${mixed ? '' : ' ' + ratesText(rows)}`}</th><th></th></tr></thead><tbody>
       ${rows.map((s) => `<tr><td>${esc(s.heure || '—')}</td>${showSeller ? `<td>${esc(userLabel(s.userId))}</td>` : ''}<td class="strong">${isHosp ? `<span class="hosp-tag ${({ 'Hébergement': 'heb', 'Cocon': 'coc' })[hospKind(s)] || ''}">${HOSP_TAGS[hospKind(s)]}</span>` : ''}${esc(s.nom)}</td>${showClient ? `<td>${esc(saleClients(s) || '—')}</td>` : ''}
-        <td class="num">${Number(s.qty) || 0}</td><td class="num">${fmtMoney(Number(s.prix) || 0)}</td><td class="num strong">${fmtMoney(saleTotal(s))}</td><td class="num">${fmtMoney(saleCommission(s))}${mixed ? ` <small class="muted">${pctOf(saleRate(s))}</small>` : ''}</td>
-        <td>${canRemoveSale(s) ? `<button class="icon-btn xs" type="button" onclick="removeVente('${s.id}')" aria-label="Retirer cette vente">${icon('x', 'sm')}</button>` : ''}</td></tr>`).join('')}
-      </tbody><tfoot><tr><td colspan="${(showSeller ? 5 : 4) + (showClient ? 1 : 0)}" class="strong">Total</td><td class="num strong">${fmtMoney(total)}</td><td class="num strong">${fmtMoney(commissionOfSales(rows))}</td><td></td></tr></tfoot></table></div>`
-    : `<p class="muted bs-empty">${open && canFillFinance() ? 'Aucune vente notée pour l\'instant. Remplissez la ligne ci-dessus puis « Ajouter » : c\'est enregistré tout de suite.' : 'Aucune vente sur cette fiche.'}</p>`}
+        ${isExp ? '' : `<td class="num">${Number(s.qty) || 0}</td><td class="num">${fmtMoney(Number(s.prix) || 0)}</td>`}<td class="num strong">${fmtMoney(saleTotal(s))}</td><td class="num">${fmtMoney(saleCommission(s))}${mixed && !isExp ? ` <small class="muted">${rateLabel(s)}</small>` : ''}</td>
+        <td>${canRemoveSale(s) ? `<button class="icon-btn xs" type="button" onclick="removeVente('${s.id}')" aria-label="Retirer ${isExp ? 'cet export' : 'cette vente'}">${icon('x', 'sm')}</button>` : ''}</td></tr>`).join('')}
+      </tbody><tfoot><tr><td colspan="${(showSeller ? 2 : 1) + 1 + (showClient ? 1 : 0) + (isExp ? 0 : 2)}" class="strong">Total</td><td class="num strong">${fmtMoney(total)}</td><td class="num strong">${fmtMoney(commissionOfSales(rows))}</td><td></td></tr></tfoot></table></div>`
+    : `<p class="muted bs-empty">${open && canFillFinance() ? (isExp ? 'Aucun export noté pour l\'instant. Indiquez le montant de l\'export puis « Ajouter » : c\'est enregistré tout de suite.' : 'Aucune vente notée pour l\'instant. Remplissez la ligne ci-dessus puis « Ajouter » : c\'est enregistré tout de suite.') : (isExp ? 'Aucun export sur cette fiche.' : 'Aucune vente sur cette fiche.')}</p>`}
   </div>`;
 }
 function saleForm() {
@@ -233,6 +240,13 @@ function saleForm() {
       <datalist id="svHospList">${sugg.map((o) => `<option value="${esc(o)}"></option>`).join('')}</datalist>
       <input class="input bs-price" id="svPrice" type="number" min="1" step="1" placeholder="Prix ($)" value="${esc(VENTE_LAST.hospPrix[kind] || '')}" aria-label="Prix unitaire en dollars" ${enter}>
       <input class="input bs-qty" id="svQty" type="number" min="1" max="999" step="1" value="1" aria-label="Nombre d'entrées" title="Nombre d'entrées" ${enter}>
+      ${add}</div>`;
+  }
+  if (VENTE_TYPE === 'export') {
+    // Export : seulement le montant (et un détail facultatif)
+    return `<div class="bs-add">${seller}
+      <input class="input bs-amount" id="svExport" type="number" min="1" step="1" placeholder="Montant de l'export ($)" aria-label="Montant de l'export en dollars" ${enter}>
+      <input class="input bs-label" id="svLabel" maxlength="60" placeholder="Détail (facultatif)" aria-label="Détail de l'export (facultatif)" ${enter}>
       ${add}</div>`;
   }
   if (VENTE_TYPE === 'carteVip') {
@@ -359,6 +373,13 @@ function addVente() {
     if (!(qty >= 1 && qty <= 999)) { toast("Indiquez le nombre d'entrées (1 à 999).", 'error'); return; }
     rec = { nom: label, categorie: 'Entrée', prix, qty };
     VENTE_LAST.hospLabel['Entrée'] = label; VENTE_LAST.hospPrix['Entrée'] = String(prix); focus = 'svPrice';
+  } else if (type === 'export') {
+    // Export : le montant seulement, 1/3 au salaire (pas de commission)
+    const prix = Math.round(Number(val('svExport')) * 100) / 100;
+    if (!(prix > 0 && prix <= 1000000)) { toast("Indiquez le montant de l'export (en $).", 'error'); const el = document.getElementById('svExport'); if (el) el.focus(); return; }
+    const detail = val('svLabel').trim().slice(0, 60);
+    rec = { nom: detail ? 'Export — ' + detail : 'Export', categorie: 'Export', prix, qty: 1 };
+    focus = 'svExport';
   } else {
     const tier = membershipTiers().find((t) => t.key === val('svTier'));
     const client = val('svClient').trim().slice(0, 60);
@@ -368,20 +389,20 @@ function addVente() {
     VENTE_LAST.tier = tier.key; focus = 'svClient';
   }
   // taux et salaire maximum : rôle / grade du vendeur au moment de la vente (revérifiés et fixés par le serveur en base partagée)
-  const sale = { id: uid('vt'), type, date, day: dayKeyOf(date), userId: sellerId, ...rec, taux: userRate(sellerId), plafond: userCap(sellerId), heure: nowHM(), createdAt: new Date().toISOString() };
+  const sale = { id: uid('vt'), type, date, day: dayKeyOf(date), userId: sellerId, ...rec, taux: type === 'export' ? EXPORT_RATE : userRate(sellerId), plafond: userCap(sellerId), heure: nowHM(), createdAt: new Date().toISOString() };
   DB.barSales.push(sale);
   // carte VIP vendue → le client apparaît dans le Topo (en base partagée, c'est le serveur qui l'ajoute pour tout le monde)
   if (type === 'carteVip' && !isShared()) DB.avantages.push(vipAvantageOf(sale));
   const wk = weekSalesOf(date, [sellerId]);
   const over = sellerPay(wk.filter(isSaleTransferred), wk.filter((s) => !isSaleTransferred(s))).surplus > 0;
-  toast(`${rec.qty} × ${rec.nom} enregistré (${fmtMoney(saleTotal(sale))}) — part ${pctOf(sale.taux)} : ${fmtMoney(saleCommission(sale))}${over ? ` (salaire max de la semaine atteint : le surplus reste à la compta)` : ''}${type === 'carteVip' ? ` · ${rec.client} ajouté au Topo` : ''}.`, 'success');
+  toast(`${type === 'export' ? `${rec.nom} enregistré (${fmtMoney(saleTotal(sale))}) — ${EXPORT_SHARE} au salaire` : `${rec.qty} × ${rec.nom} enregistré (${fmtMoney(saleTotal(sale))}) — part ${pctOf(sale.taux)}`} : ${fmtMoney(saleCommission(sale))}${over ? ` (salaire max de la semaine atteint : le surplus reste à la compta)` : ''}${type === 'carteVip' ? ` · ${rec.client} ajouté au Topo` : ''}.`, 'success');
   refresh();
   setTimeout(() => { const el = document.getElementById(focus); if (el) el.focus(); }, 60);
 }
 function removeVente(id) {
   const s = allSales().find((x) => x.id === id);
   if (!s || !canRemoveSale(s)) return;
-  confirmAction(`Retirer la vente « ${Number(s.qty) || 0} × ${esc(s.nom)} » (${fmtMoney(saleTotal(s))}) ?`, () => {
+  confirmAction(isExportSale(s) ? `Retirer l'export « ${esc(s.nom)} » (${fmtMoney(saleTotal(s))}) ?` : `Retirer la vente « ${Number(s.qty) || 0} × ${esc(s.nom)} » (${fmtMoney(saleTotal(s))}) ?`, () => {
     DB.barSales = DB.barSales.filter((x) => x.id !== id);
     // la carte VIP part aussi du Topo (en base partagée : le serveur s'en charge)
     if (s.type === 'carteVip' && !isShared()) DB.avantages = DB.avantages.filter((a) => !(a.id === 'av_' + id && a.origine === 'vente'));
@@ -408,25 +429,25 @@ function renderDossier() {
   const rateTxt = all ? commissionRuleShort() : ratesText(sales, userRate(uid0));
 
   let html = `<section class="section">${sectionHead('Dossier salaires', null, `<span class="badge nodot">${rateTxt}${all ? '' : ' de chaque vente'}</span>`)}
-    <p class="field-hint" style="margin:-6px 0 12px">Les fiches s'enregistrent chaque soirée et remplissent le dossier à 6h. Salaire de la semaine = ${all ? `la part de chaque vente (${commissionRule()})` : `${rateTxt} des ventes`} <b>du lundi 6h au lundi 6h</b> suivant (${salaryWeekLabel(from)}), versé en fin de semaine${acc && navAllowed('comptabilite') ? ` (comptabilité semaine ${acc.numero})` : ''}. Salaire maximum par semaine : ${all ? capRule() : (userCap(uid0) ? fmtMoney(userCap(uid0)) : 'aucun')} ; ${SURPLUS_RULE}.</p>
+    <p class="field-hint" style="margin:-6px 0 12px">Les fiches s'enregistrent chaque soirée et remplissent le dossier à 6h. Salaire de la semaine = ${all ? `la part de chaque vente (${commissionRule()}) + ${EXPORT_SHARE} des exports (pas de commission)` : `${rateTxt} des ventes + ${EXPORT_SHARE} des exports`} <b>du lundi 6h au lundi 6h</b> suivant (${salaryWeekLabel(from)}), versé en fin de semaine${acc && navAllowed('comptabilite') ? ` (comptabilité semaine ${acc.numero})` : ''}. Salaire maximum par semaine : ${all ? capRule() : (userCap(uid0) ? fmtMoney(userCap(uid0)) : 'aucun')} ; ${SURPLUS_RULE}.</p>
     <div class="pill-row" role="tablist" aria-label="Semaines du dossier">${mondays.map((m) => `<button class="pill plain ${m === DOSSIER_WEEK ? 'is-active' : ''}" type="button" role="tab" aria-selected="${m === DOSSIER_WEEK}" onclick="selectDossierWeek('${m}')">${m === curMon ? 'Cette semaine' : 'Sem. du ' + fmtDateShort(m).slice(0, 5)}</button>`).join('')}</div>`;
 
   if (all) {
     // salaires plafonnés : salaire (ventes passées à 6h) + en attente (ce soir) ≤ maximum de la semaine
     const rows = salesBySeller(done, pending);
-    const tot = rows.reduce((a, x) => ({ carte: a.carte + x.carte, hospitalite: a.hospitalite + x.hospitalite, carteVip: a.carteVip + x.carteVip, total: a.total + x.total, commission: a.commission + x.pay.done, pending: a.pending + x.pay.pending, surplus: a.surplus + x.pay.surplus }), { carte: 0, hospitalite: 0, carteVip: 0, total: 0, commission: 0, pending: 0, surplus: 0 });
-    html += rows.length ? `<div class="card table-card"><div class="table-scroll"><table class="tbl"><thead><tr><th>Employé</th><th class="num">Carte</th><th class="num">Hospitalité</th><th class="num">Cartes VIP</th><th class="num">Total ventes</th><th class="num">Salaire</th><th class="num">En attente (6h)</th><th class="num">Au-delà du max</th><th>Versement</th></tr></thead><tbody>
+    const tot = rows.reduce((a, x) => ({ carte: a.carte + x.carte, hospitalite: a.hospitalite + x.hospitalite, carteVip: a.carteVip + x.carteVip, export: a.export + x.export, total: a.total + x.total, commission: a.commission + x.pay.done, pending: a.pending + x.pay.pending, surplus: a.surplus + x.pay.surplus }), { carte: 0, hospitalite: 0, carteVip: 0, export: 0, total: 0, commission: 0, pending: 0, surplus: 0 });
+    html += rows.length ? `<div class="card table-card"><div class="table-scroll"><table class="tbl"><thead><tr><th>Employé</th><th class="num">Carte</th><th class="num">Hospitalité</th><th class="num">Cartes VIP</th><th class="num">Export</th><th class="num">Total ventes</th><th class="num">Salaire</th><th class="num">En attente (6h)</th><th class="num">Au-delà du max</th><th>Versement</th></tr></thead><tbody>
       ${rows.map((x) => {
         const pv = pay[x.userId] || {};
         const seller = DB.users.find((u) => u.id === x.userId);
         // taux de la semaine (celui des ventes), grade actuel de l'employé et salaire maximum
         const tag = [x.taux, gradeOf(seller), x.plafond ? 'max ' + fmtMoney(x.plafond) : 'sans max'].filter(Boolean).join(' · ');
-        return `<tr><td><button class="link-btn" type="button" onclick="setVenteSeller('${x.userId}')">${esc(userLabel(x.userId))}</button><small class="muted seller-rate">${esc(tag)}</small></td><td class="num">${x.carte ? fmtMoney(x.carte) : '—'}</td><td class="num">${x.hospitalite ? fmtMoney(x.hospitalite) : '—'}</td><td class="num">${x.carteVip ? fmtMoney(x.carteVip) : '—'}</td>
+        return `<tr><td><button class="link-btn" type="button" onclick="setVenteSeller('${x.userId}')">${esc(userLabel(x.userId))}</button><small class="muted seller-rate">${esc(tag)}</small></td><td class="num">${x.carte ? fmtMoney(x.carte) : '—'}</td><td class="num">${x.hospitalite ? fmtMoney(x.hospitalite) : '—'}</td><td class="num">${x.carteVip ? fmtMoney(x.carteVip) : '—'}</td><td class="num">${x.export ? fmtMoney(x.export) : '—'}</td>
           <td class="num">${fmtMoney(x.total)}</td><td class="num strong">${fmtMoney(x.pay.done)}</td><td class="num">${x.pay.pending ? '+ ' + fmtMoney(x.pay.pending) : '—'}</td>
           <td class="num">${x.pay.surplus ? `<span title="Reste dans la compta, sans commission">${fmtMoney(x.pay.surplus)}</span>` : '—'}</td>
           <td>${pv.valide ? `<span class="badge good">Versé${pv.dateVersement ? ' le ' + fmtDateShort(pv.dateVersement) : ''}</span>` : statusBadge('À valider')}</td></tr>`;
       }).join('')}
-      <tr class="total"><td>Total</td><td class="num">${fmtMoney(tot.carte)}</td><td class="num">${fmtMoney(tot.hospitalite)}</td><td class="num">${fmtMoney(tot.carteVip)}</td><td class="num">${fmtMoney(tot.total)}</td><td class="num">${fmtMoney(tot.commission)}</td><td class="num">${tot.pending ? '+ ' + fmtMoney(tot.pending) : '—'}</td><td class="num">${tot.surplus ? fmtMoney(tot.surplus) : '—'}</td><td></td></tr>
+      <tr class="total"><td>Total</td><td class="num">${fmtMoney(tot.carte)}</td><td class="num">${fmtMoney(tot.hospitalite)}</td><td class="num">${fmtMoney(tot.carteVip)}</td><td class="num">${fmtMoney(tot.export)}</td><td class="num">${fmtMoney(tot.total)}</td><td class="num">${fmtMoney(tot.commission)}</td><td class="num">${tot.pending ? '+ ' + fmtMoney(tot.pending) : '—'}</td><td class="num">${tot.surplus ? fmtMoney(tot.surplus) : '—'}</td><td></td></tr>
     </tbody></table></div></div>
     <p class="field-hint" style="margin-top:10px">Les salaires de ce dossier sont repris automatiquement dans la comptabilité (« Salaires versés » et charge « Salaires staff »). La direction et la comptabilité y cochent le versement.${tot.surplus ? ` « Au-delà du max » : commission non versée, qui reste dans la compta (bénéfice), sans commission.` : ''}</p>`
     : emptyState('🧾', 'Aucune vente cette semaine', 'Les ventes notées sur les fiches apparaîtront ici dès 6h le lendemain matin.');
@@ -438,9 +459,12 @@ function renderDossier() {
   const per = days.map((d) => {
     const list = sales.filter((s) => s.date === d);
     const by = (t) => sumSales(list.filter((s) => saleType(s) === t));
-    return { d, carte: by('carte'), hospitalite: by('hospitalite'), carteVip: by('carteVip'), total: sumSales(list), part: commissionOfSales(list), open: !isDayTransferred(d), n: list.length };
+    return { d, carte: by('carte'), hospitalite: by('hospitalite'), carteVip: by('carteVip'), export: by('export'), total: sumSales(list), part: commissionOfSales(list), open: !isDayTransferred(d), n: list.length };
   });
   const doneTotal = sumSales(done), pendTotal = sumSales(pending);
+  // part des ventes passées à 6h : « 35 % de 5 000 $ de ventes + 1/3 de 3 000 $ d'export »
+  const doneEx = done.filter(isExportSale), doneSales = done.filter((s) => !isExportSale(s));
+  const doneTxt = `${ratesText(doneSales, userRate(uid0))} de ${fmtMoney(sumSales(doneSales))} de ventes${doneEx.length ? ` + ${EXPORT_SHARE} de ${fmtMoney(sumSales(doneEx))} d'export` : ''}`;
   const pv = pay[uid0] || {};
   const g0 = gradeOf(DB.users.find((u) => u.id === uid0));
   // salaire plafonné au maximum de la semaine (le surplus reste à la compta)
@@ -448,15 +472,15 @@ function renderDossier() {
   const cap0 = sp.cap || (sales.length ? 0 : userCap(uid0));
   html += `<div class="dossier">
     <div class="card dossier-sum"><span class="lbl">${scopeLabel() === 'me' ? 'Mon salaire de la semaine' : 'Salaire de la semaine'}</span><span class="v">${fmtMoney(sp.done)}</span>
-      <small>${ratesText(done, userRate(uid0))} de ${fmtMoney(doneTotal)} de ventes${sp.pending ? ` · + ${fmtMoney(sp.pending)} ce soir, ajoutés à 6h` : ''}${g0 ? ` · grade ${esc(g0.toLowerCase())}` : ''} · ${cap0 ? `max ${fmtMoney(cap0)} par semaine` : 'sans maximum'}${sp.surplus ? `<br><b>Max atteint</b> : ${fmtMoney(sp.surplus)} de commission au-delà restent dans la compta` : ''}<br>${salaryWeekLabel(from)}</small>
+      <small>${doneTxt}${sp.pending ? ` · + ${fmtMoney(sp.pending)} ce soir, ajoutés à 6h` : ''}${g0 ? ` · grade ${esc(g0.toLowerCase())}` : ''} · ${cap0 ? `max ${fmtMoney(cap0)} par semaine` : 'sans maximum'}${sp.surplus ? `<br><b>Max atteint</b> : ${fmtMoney(sp.surplus)} de commission au-delà restent dans la compta` : ''}<br>${salaryWeekLabel(from)}</small>
       <span>${pv.valide ? `<span class="badge good">Versé${pv.dateVersement ? ' le ' + fmtDateShort(pv.dateVersement) : ''}</span>` : statusBadge('À valider')}</span></div>
-    <div class="card table-card"><div class="table-scroll"><table class="tbl compact"><thead><tr><th>Soirée</th><th class="num">Carte</th><th class="num">Hospitalité</th><th class="num">Cartes VIP</th><th class="num">Total</th><th class="num">Part ${rateTxt}</th><th>État</th></tr></thead><tbody>
-      ${per.map((x) => `<tr${x.n ? '' : ' class="muted-row"'}><td><button class="link-btn" type="button" onclick="selectVenteDay('${x.d}')">${esc(fmtDate(x.d))}</button></td><td class="num">${x.carte ? fmtMoney(x.carte) : '—'}</td><td class="num">${x.hospitalite ? fmtMoney(x.hospitalite) : '—'}</td><td class="num">${x.carteVip ? fmtMoney(x.carteVip) : '—'}</td>
+    <div class="card table-card"><div class="table-scroll"><table class="tbl compact"><thead><tr><th>Soirée</th><th class="num">Carte</th><th class="num">Hospitalité</th><th class="num">Cartes VIP</th><th class="num">Export</th><th class="num">Total</th><th class="num">Part ${rateTxt}${doneEx.length || pending.some(isExportSale) ? ` · ${EXPORT_SHARE} export` : ''}</th><th>État</th></tr></thead><tbody>
+      ${per.map((x) => `<tr${x.n ? '' : ' class="muted-row"'}><td><button class="link-btn" type="button" onclick="selectVenteDay('${x.d}')">${esc(fmtDate(x.d))}</button></td><td class="num">${x.carte ? fmtMoney(x.carte) : '—'}</td><td class="num">${x.hospitalite ? fmtMoney(x.hospitalite) : '—'}</td><td class="num">${x.carteVip ? fmtMoney(x.carteVip) : '—'}</td><td class="num">${x.export ? fmtMoney(x.export) : '—'}</td>
         <td class="num strong">${x.total ? fmtMoney(x.total) : '—'}</td><td class="num">${x.total ? fmtMoney(x.part) : '—'}</td>
         <td>${x.d > today ? '<span class="muted">À venir</span>' : x.open ? '<span class="badge warn">En cours · 6h</span>' : (x.n ? '<span class="badge good">Transféré</span>' : '<span class="muted">—</span>')}</td></tr>`).join('')}
-      <tr class="total"><td>Total de la semaine</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.carte, 0))}</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.hospitalite, 0))}</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.carteVip, 0))}</td><td class="num">${fmtMoney(doneTotal + pendTotal)}</td><td class="num">${fmtMoney(sp.brut)}</td><td></td></tr>
-      ${sp.surplus ? `<tr><td colspan="5">Au-delà du salaire maximum (${fmtMoney(sp.cap)}) : reste dans la compta</td><td class="num">− ${fmtMoney(sp.surplus)}</td><td></td></tr>
-      <tr class="total"><td colspan="5">Salaire de la semaine</td><td class="num">${fmtMoney(sp.salaire)}</td><td></td></tr>` : ''}
+      <tr class="total"><td>Total de la semaine</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.carte, 0))}</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.hospitalite, 0))}</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.carteVip, 0))}</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.export, 0))}</td><td class="num">${fmtMoney(doneTotal + pendTotal)}</td><td class="num">${fmtMoney(sp.brut)}</td><td></td></tr>
+      ${sp.surplus ? `<tr><td colspan="6">Au-delà du salaire maximum (${fmtMoney(sp.cap)}) : reste dans la compta</td><td class="num">− ${fmtMoney(sp.surplus)}</td><td></td></tr>
+      <tr class="total"><td colspan="6">Salaire de la semaine</td><td class="num">${fmtMoney(sp.salaire)}</td><td></td></tr>` : ''}
     </tbody></table></div></div>
   </div>`;
   return html + '</section>';
@@ -470,18 +494,18 @@ function exportDossierCSV() {
   const sales = salesInRange(from, to).sort((a, b) => (a.date + (a.createdAt || '')).localeCompare(b.date + (b.createdAt || '')));
   const q = (v) => `"${String(v === undefined || v === null ? '' : v).replace(/"/g, '""')}"`;
   const lines = [[q(`Pacific Bluffs — Dossier salaires`), q(`du lundi ${from} 6h au lundi ${shiftISO(from, 7)} 6h`), q(`Commission ${commissionRule()}`)].join(';'), ''];
-  lines.push([q(`Salaire maximum par semaine : ${capRule()} ; ${SURPLUS_RULE}`)].join(';'), '');
-  lines.push(['Employé', 'Grade', 'Taux', 'Ventes carte', 'Hospitalité', 'Cartes VIP', 'Total ventes', 'Commission', 'Salaire max', 'Salaire', 'Dont en attente (6h)', 'Au-delà du max (reste à la compta)'].map(q).join(';'));
+  lines.push([q(`Salaire maximum par semaine : ${capRule()} ; ${SURPLUS_RULE}`)].join(';'), [q(EXPORT_RULE)].join(';'), '');
+  lines.push(['Employé', 'Grade', 'Taux', 'Ventes carte', 'Hospitalité', 'Cartes VIP', 'Export', 'Total ventes', 'Commission', 'Salaire max', 'Salaire', 'Dont en attente (6h)', 'Au-delà du max (reste à la compta)'].map(q).join(';'));
   const rowsAll = salesBySeller(sales.filter(isSaleTransferred), sales.filter((s) => !isSaleTransferred(s)));
   // total des ventes de la semaine (passées à 6h et en cours) pour chaque vendeur
   rowsAll.forEach((x) => {
     const mine = sales.filter((s) => s.userId === x.userId);
     const by = (t) => sumSales(mine.filter((s) => saleType(s) === t));
-    lines.push([q(userLabel(x.userId)), q(gradeOf(DB.users.find((u) => u.id === x.userId))), q(x.taux), by('carte'), by('hospitalite'), by('carteVip'), sumSales(mine), x.pay.brut, x.plafond ? x.plafond : q('sans max'), x.pay.salaire, x.pay.pending, x.pay.surplus].join(';'));
+    lines.push([q(userLabel(x.userId)), q(gradeOf(DB.users.find((u) => u.id === x.userId))), q(x.taux), by('carte'), by('hospitalite'), by('carteVip'), by('export'), sumSales(mine), x.pay.brut, x.plafond ? x.plafond : q('sans max'), x.pay.salaire, x.pay.pending, x.pay.surplus].join(';'));
   });
   lines.push('');
   lines.push(['Soirée', 'Heure', 'Vendeur', 'Fiche', 'Article', 'Client', 'Quantité', 'Prix', 'Total', 'Taux', 'Part', 'État'].map(q).join(';'));
-  sales.forEach((s) => lines.push([q(s.date), q(s.heure), q(userLabel(s.userId)), q(saleTypeInfo(saleType(s)).label + (saleType(s) === 'hospitalite' ? ' — ' + hospKind(s) : '')), q(s.nom), q(saleClients(s)), Number(s.qty) || 0, Number(s.prix) || 0, saleTotal(s), q(pctOf(saleRate(s))), saleCommission(s), q(isSaleTransferred(s) ? 'Transféré' : 'En cours')].join(';')));
+  sales.forEach((s) => lines.push([q(s.date), q(s.heure), q(userLabel(s.userId)), q(saleTypeInfo(saleType(s)).label + (saleType(s) === 'hospitalite' ? ' — ' + hospKind(s) : '')), q(s.nom), q(saleClients(s)), Number(s.qty) || 0, Number(s.prix) || 0, saleTotal(s), q(rateLabel(s)), saleCommission(s), q(isSaleTransferred(s) ? 'Transféré' : 'En cours')].join(';')));
   downloadFile(`pacific-bluffs-dossier-salaires-${from}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
   logActivity('Export du dossier salaires', `Semaine du ${fmtDateShort(from)}`);
 }

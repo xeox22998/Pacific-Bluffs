@@ -68,7 +68,7 @@ function renderDashboard() {
     // salaire maximum de la semaine déjà atteint : la part de ce soir reste à la compta
     const wk = mine.length ? weekSalesOf(serviceDay(), [u.id]) : [];
     const over = mine.length && sellerPay(wk.filter(isSaleTransferred), wk.filter((s) => !isSaleTransferred(s))).surplus > 0;
-    html += `<button class="hint hint-btn" type="button" onclick="openVentesDay(serviceDay(),null)">${icon('receipt', 'sm')}<span><b>${mine.length ? `Ce soir : ${fmtMoney(t)} de ventes, votre part ${ratesText(mine)} : ${fmtMoney(commissionOfSales(mine))}${over ? ' (salaire max de la semaine atteint : le surplus reste à la compta)' : ''}.` : 'Noter une vente'}</b> ${mine.length ? 'Cliquez pour ouvrir vos fiches de ventes.' : `Carte, hospitalité (entrées, cocons) ou carte VIP : notez chaque vente dans l'onglet Ventes, vous touchez ${pctOf(sellerRate(u))}${sellerCap(u) ? `, ${fmtMoney(sellerCap(u))} maximum par semaine` : ''}.`}</span>${icon('arrow', 'sm')}</button>`;
+    html += `<button class="hint hint-btn" type="button" onclick="openVentesDay(serviceDay(),null)">${icon('receipt', 'sm')}<span><b>${mine.length ? `Ce soir : ${fmtMoney(t)} de ventes, votre part (${shareText(mine)}) : ${fmtMoney(commissionOfSales(mine))}${over ? ' (salaire max de la semaine atteint : le surplus reste à la compta)' : ''}.` : 'Noter une vente'}</b> ${mine.length ? 'Cliquez pour ouvrir vos fiches de ventes.' : `Carte, hospitalité (entrées, cocons), carte VIP ou export : notez chaque vente dans l'onglet Ventes, vous touchez ${pctOf(sellerRate(u))} (${EXPORT_SHARE} pour un export)${sellerCap(u) ? `, ${fmtMoney(sellerCap(u))} maximum par semaine` : ''}.`}</span>${icon('arrow', 'sm')}</button>`;
   }
 
   if (isMgmt() || canSeeFinance()) {

@@ -161,7 +161,10 @@ async function readBody(req) { try { return (await req.json()) || {}; } catch (e
 /* ---------------- Fiches de ventes (onglet Ventes) ----------------
    Journée de service de 6h à 6h, heure de Paris : à 6h elle passe en comptabilité
    et se ferme pour les employés (10 min de battement pour une vente notée à 5h59). */
-const SALE_TYPES = ['carte', 'hospitalite', 'carteVip'];
+const SALE_TYPES = ['carte', 'hospitalite', 'carteVip', 'export'];
+// Exports (fiche « Export », tout le staff) : pas de commission, 1/3 du montant va au salaire de la semaine
+// (gardé sur la vente comme un taux, compté dans le salaire maximum). Même valeur que EXPORT_RATE dans data.js.
+const EXPORT_RATE = 1 / 3;
 // fiche hospitalité : entrées en soirée et cocons paradisiaques (pour 2) ; « Hébergement » n'est plus
 // proposé par l'espace staff mais reste accepté pour les ventes déjà notées (corrections de la compta)
 const HOSP_KINDS = ['Entrée', 'Hébergement', 'Cocon'];
@@ -200,6 +203,14 @@ function normalizeSale(r, lists) {
   } else if (type === 'carteVip') {
     out.prix = cardPrice(cartes, r.categorie);
     out.qty = 1;
+    if (!out.prix) return null;
+  } else if (type === 'export') {
+    // export : on note seulement le montant (une ligne = un export)
+    out.prix = capPrice(r.prix);
+    out.qty = 1;
+    out.categorie = 'Export';
+    out.nom = clean(r.nom, 80) || 'Export';
+    delete out.client; delete out.client2; delete out.itemId;
     if (!out.prix) return null;
   } else {
     out.categorie = HOSP_KINDS.includes(r.categorie) ? r.categorie : 'Entrée';
@@ -312,7 +323,7 @@ async function upgradeRates(store) {
     if (!s) continue;
     const u = byId.get(s.userId);
     const r = u ? roleRate(u.role) : 0;
-    if (r && s.taux !== r) { s.taux = r; n++; changed = true; }
+    if (r && s.type !== 'export' && s.taux !== r) { s.taux = r; n++; changed = true; } // export : 1/3, pas une commission
     if (s.plafond === undefined || s.plafond === null) { s.plafond = capOf(u); changed = true; }
   }
   if (changed) await putCol(store, 'barSales', sales);
@@ -447,6 +458,8 @@ async function checkPassword(user, password) {
   return false;
 }
 const publicUser = (u) => { const { pwHash, pwSalt, passHash, password, ...rest } = u; return rest; };
+/* Numéro de téléphone en jeu : chiffres, espaces, + - . ( ) — 20 caractères au plus ('' = pas de numéro) */
+const cleanPhone = (v) => clean(v, 40).replace(/[^\d+\-.()\s]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20);
 
 function validateAccount(b, users) {
   const prenom = clean(b.prenom, 40);
@@ -590,7 +603,9 @@ async function routeData(store, a) {
   const role = a.user.role;
   const employe = role === 'EMPLOYE';
   const db = {
-    users: all.users.filter((u) => role === 'DIRECTION' || u.statut !== 'En attente').map(publicUser),
+    // un employé ne voit que sa fiche : pas les numéros de téléphone des autres
+    users: all.users.filter((u) => role === 'DIRECTION' || u.statut !== 'En attente').map(publicUser)
+      .map((u) => { if (!employe || u.id === a.user.id) return u; const { telephone, ...rest } = u; return rest; }),
     postes: all.postes || [],
     events: all.events,
     attendances: all.attendances,
@@ -662,7 +677,7 @@ async function routeSync(req, store, a) {
           const i = index.get(r.id);
           const prev = i !== undefined ? list[i] : null;
           const seller = (users || []).find((u) => u && u.id === out.userId);
-          const taux = prev ? prev.taux : rateOf(seller);
+          const taux = out.type === 'export' ? EXPORT_RATE : prev ? prev.taux : rateOf(seller); // export : toujours 1/3
           if (typeof taux === 'number') out.taux = taux; else delete out.taux;
           out.plafond = prev && typeof prev.plafond === 'number' ? prev.plafond : capOf(seller);
           return out;
@@ -686,9 +701,13 @@ async function routeSync(req, store, a) {
           if (i === undefined) continue; // création de compte : route dédiée
           const cur = list[i];
           const self = cur.id === a.user.id;
+          // Téléphone (numéro en jeu, onglet Équipe) : chacun le sien, direction et comptabilité pour tous
+          if ((D || S || self) && rec.telephone !== undefined && cleanPhone(rec.telephone) !== (cur.telephone || '')) {
+            list[i] = { ...cur, telephone: cleanPhone(rec.telephone) };
+          }
           // Nom et prénom : direction et comptabilité pour tous, manager et gouvernement pour leur propre fiche, employé jamais
           if (!(D || S || ((M || G) && self))) continue;
-          list[i] = { ...cur, prenom: clean(rec.prenom, 40) || cur.prenom, nom: clean(rec.nom, 40) || '/' };
+          list[i] = { ...list[i], prenom: clean(rec.prenom, 40) || cur.prenom, nom: clean(rec.nom, 40) || '/' };
           if (D) { // rôle, sous-rôle, grade et statut : direction seulement
             list[i].role = ROLES.includes(rec.role) ? rec.role : cur.role;
             list[i].statut = ['Actif', 'Désactivé', 'En attente'].includes(rec.statut) ? rec.statut : cur.statut;
@@ -903,6 +922,7 @@ async function routeCreateUser(req, store, a) {
     id: 'u_' + randomHex(6), username: v.username, prenom: v.prenom, nom: v.nom,
     role, sousRole: validSubRole(role, b.sousRole), grade: validGrade(role, b.grade), poste: clean(b.poste, 60) || 'Non renseigné', statut: 'Actif', dateCreation: todayParis(),
   };
+  if (cleanPhone(b.telephone)) user.telephone = cleanPhone(b.telephone);
   await setPassword(user, v.password);
   a.users.push(user);
   await putCol(store, 'users', a.users);

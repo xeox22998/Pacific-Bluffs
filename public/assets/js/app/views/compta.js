@@ -95,7 +95,7 @@ function renderComptabilite() {
   </div></section>`;
   // Salaires : commissions des fiches de ventes + lignes saisies à la main
   html += `<section class="section">${sectionHead('Salaires versés', weekCommissionRows(week).length + (week.salaries || []).length, editStruct ? `<button class="btn btn-xs" type="button" onclick="addSalaryRow('${week.id}')">${icon('plus', 'sm')}Ligne</button>` : '')}
-    <p class="field-hint" style="margin:-6px 0 12px">Chaque vendeur touche une part de ses ventes : ${commissionRule()}. Salaire maximum par semaine : ${capRule()} ; ${SURPLUS_RULE}. Ces lignes viennent du dossier salaires de l'onglet Ventes : elles sont calculées toutes seules et comptées dans la charge « Salaires staff ». Ajoutez une ligne pour une prime ou un autre salaire.</p>
+    <p class="field-hint" style="margin:-6px 0 12px">Chaque vendeur touche une part de ses ventes : ${commissionRule()} ; ${EXPORT_RULE}. Salaire maximum par semaine : ${capRule()} ; ${SURPLUS_RULE}. Ces lignes viennent du dossier salaires de l'onglet Ventes : elles sont calculées toutes seules et comptées dans la charge « Salaires staff ». Ajoutez une ligne pour une prime ou un autre salaire.</p>
     ${renderSalaryTable(week, editStruct)}</section>`;
   // Ventes de la carte
   html += `<section class="section">${sectionHead('Ventes de la carte — récap de la semaine', null, `<span class="badge nodot">${comptaSales(week, 'carte').length ? 'calculé' : 'informatif'}</span>`)}${renderMenuSales(week, canFill)}</section>`;
@@ -178,7 +178,7 @@ function renderSalaryTable(week, editStruct) {
     const p = pay[x.userId] || {};
     return `<tr class="bar-row">
     <td><span class="strong">${esc(userLabel(x.userId))}</span></td>
-    <td>Commission ${esc(x.taux)} · ${fmtMoney(x.total)} de ventes${x.surplus ? ` · <b>max ${fmtMoney(x.plafond)} atteint</b> : ${fmtMoney(x.surplus)} restent à la compta` : ''}<span class="auto-tag">${icon('receipt', 'sm')}Fiches de ventes</span></td>
+    <td>${x.total - x.export ? `Commission ${esc(x.taux)} · ${fmtMoney(x.total - x.export)} de ventes` : ''}${x.export ? `${x.total - x.export ? ' · ' : ''}${EXPORT_SHARE} de ${fmtMoney(x.export)} d'export` : ''}${x.surplus ? ` · <b>max ${fmtMoney(x.plafond)} atteint</b> : ${fmtMoney(x.surplus)} restent à la compta` : ''}<span class="auto-tag">${icon('receipt', 'sm')}Fiches de ventes</span></td>
     <td class="num strong">${fmtMoney(x.commission)}</td>
     <td>${editStruct ? `<input class="cell-in" type="date" value="${esc(p.dateVersement || '')}" onchange="updateCommissionPay('${week.id}','${x.userId}','dateVersement',this.value)">` : (p.dateVersement ? fmtDateShort(p.dateVersement) : 'Non renseigné')}</td>
     <td>${editStruct ? `<input class="tick" type="checkbox" ${p.valide ? 'checked' : ''} onchange="updateCommissionPay('${week.id}','${x.userId}','valide',this.checked)" aria-label="Salaire validé">` : statusBadge(p.valide ? 'Validé' : 'À valider')}</td>
@@ -390,7 +390,7 @@ function exportWeekCSV(weekId) {
   if (fiche.length) {
     lines.push('');
     lines.push(['Fiches de ventes — soirée', 'Heure', 'Vendeur', 'Fiche', 'Article', 'Client', 'Quantité', 'Prix', 'Total', 'Taux', 'Part'].map(q).join(';'));
-    fiche.forEach((s) => lines.push([q(s.date || DAY_LABELS[DAY_KEYS.indexOf(s.day)]), q(s.heure), q(userLabel(s.userId)), q((SALE_TYPES.find((t) => t.id === saleType(s)) || SALE_TYPES[0]).label + (saleType(s) === 'hospitalite' ? ' — ' + hospKind(s) : '')), q(s.nom), q(saleClients(s)), Number(s.qty) || 0, Number(s.prix) || 0, saleTotal(s), q(pctOf(saleRate(s))), saleCommission(s)].join(';')));
+    fiche.forEach((s) => lines.push([q(s.date || DAY_LABELS[DAY_KEYS.indexOf(s.day)]), q(s.heure), q(userLabel(s.userId)), q((SALE_TYPES.find((t) => t.id === saleType(s)) || SALE_TYPES[0]).label + (saleType(s) === 'hospitalite' ? ' — ' + hospKind(s) : '')), q(s.nom), q(saleClients(s)), Number(s.qty) || 0, Number(s.prix) || 0, saleTotal(s), q(rateLabel(s)), saleCommission(s)].join(';')));
   }
   downloadFile(`pacific-bluffs-compta-semaine-${w.numero}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
   logActivity('Export CSV', 'Semaine ' + w.numero);

@@ -271,7 +271,7 @@ function defaultExpenseRows() { return EXPENSE_CATS.map((c) => ({ categorie: c, 
 /* =====================================================================
    FICHES DE VENTES (onglet « Ventes », voir views/ventes.js)
    Une vente = un enregistrement de DB.barSales (nom de collection gardé pour la base) :
-   { id, type: 'carte' | 'hospitalite' | 'carteVip', date: journée de service (AAAA-MM-JJ), day, userId,
+   { id, type: 'carte' | 'hospitalite' | 'carteVip' | 'export', date: journée de service (AAAA-MM-JJ), day, userId,
      itemId, nom, categorie, prix, qty, client (carte VIP, hébergement, cocon), client2 (cocon), heure, createdAt }
    Hospitalité : categorie = 'Entrée' (entrées en soirée) ou 'Cocon' (cocon paradisiaque : chambre
    pour 2, prix de la liste DB.cocons, deux noms de clients) ; 'Hébergement' : anciennes ventes seulement.
@@ -292,12 +292,22 @@ function defaultExpenseRows() { return EXPENSE_CATS.map((c) => ({ categorie: c, 
    Exceptions : l'encadrement (managers, comptabilité, direction) est passé à 45 % puis revenu à 35 %
    (14/11/2026), ventes déjà notées comprises, et les plafonds ont été posés sur les ventes déjà notées
    (une seule fois : upgradeTaux ici en mode local, upgradeRates dans api.mjs en base partagée).
+   Exports (23/11/2026) : fiche « Export » ouverte à tout le staff, on note seulement le montant de l'export
+   (type 'export', qty 1, prix = montant, categorie 'Export'). Pas de commission : 1/3 du montant va au
+   salaire de la semaine (EXPORT_RATE, gardé sur la vente comme un taux, compté dans le salaire maximum),
+   le montant entier va dans la ligne « Export » de la compta.
    ===================================================================== */
 const SALE_TYPES = [
   { id: 'carte', label: 'Carte', long: 'Fiche des ventes de la carte', emoji: '🍹', compta: 'Bar & boissons' },
   { id: 'hospitalite', label: 'Hospitalité', long: 'Fiche hospitalité', emoji: '🛎️', compta: 'Entrées soirées / Hébergements (cocons)' },
   { id: 'carteVip', label: 'Cartes VIP', long: 'Fiche des ventes de cartes VIP', emoji: '💳', compta: 'Cartes membres' },
+  { id: 'export', label: 'Export', long: 'Fiche des exports', emoji: '📦', compta: 'Export' },
 ];
+/* Exports : 1/3 du montant au salaire de la semaine (même valeur que EXPORT_RATE dans api.mjs) */
+const EXPORT_RATE = 1 / 3;
+const EXPORT_SHARE = '1/3';
+const EXPORT_RULE = `exports : ${EXPORT_SHARE} du montant de l'export va au salaire (pas de commission)`;
+function isExportSale(s) { return !!s && s.type === 'export'; }
 const COMMISSION_RATE = Number(CLUB.COMMISSION_VENTES) || 0.25;
 const COMMISSION_PCT = Math.round(COMMISSION_RATE * 100);
 const SERVICE_START_HOUR = 6;
@@ -343,7 +353,17 @@ function sellerCap(u) {
 function findSeller(userId) { return (DB && DB.users || []).find((u) => u.id === userId); }
 function userRate(userId) { return sellerRate(findSeller(userId)); }
 function userCap(userId) { return sellerCap(findSeller(userId)); }
-function saleRate(s) { const t = Number(s && s.taux); return t > 0 && t < 1 ? t : COMMISSION_RATE; }
+function saleRate(s) { if (isExportSale(s)) return EXPORT_RATE; const t = Number(s && s.taux); return t > 0 && t < 1 ? t : COMMISSION_RATE; }
+/* Part affichée d'une vente : « 35 % », ou « 1/3 » pour un export */
+function rateLabel(s) { return isExportSale(s) ? EXPORT_SHARE : pctOf(saleRate(s)); }
+/* Part d'une liste de ventes : « 35 % des ventes + 1/3 des exports » */
+function shareText(list, fallback) {
+  const ex = list.filter(isExportSale), rest = list.filter((s) => !isExportSale(s));
+  const parts = [];
+  if (rest.length || !ex.length) parts.push(ratesText(rest, fallback) + ' des ventes');
+  if (ex.length) parts.push(EXPORT_SHARE + ' des exports');
+  return parts.join(' + ');
+}
 /* Plafond gardé sur la vente (0 = sans maximum) ; vente plus ancienne que les plafonds : celui du vendeur aujourd'hui */
 function saleCap(s) {
   if (s && s.plafond !== undefined && s.plafond !== null && Number.isFinite(Number(s.plafond))) return Math.max(0, Number(s.plafond));
@@ -382,7 +402,8 @@ function payOfSales(done, pend) {
 function weekSalesOf(date, ids) { const mon = mondayOf(date); return salesInRange(mon, shiftISO(mon, 6)).filter((s) => !ids || ids.includes(s.userId)); }
 /* Taux d'une liste de ventes : « 35 % », « 25 à 35 % » (taux mélangés), ou le taux par défaut si elle est vide */
 function ratesText(list, fallback) {
-  const r = [...new Set(list.map(saleRate))].sort((a, b) => a - b);
+  // les exports (1/3, pas une commission) ne comptent pas dans le taux affiché : voir shareText
+  const r = [...new Set(list.filter((s) => !isExportSale(s)).map(saleRate))].sort((a, b) => a - b);
   if (!r.length) return typeof fallback === 'string' ? fallback : pctOf(fallback === undefined ? COMMISSION_RATE : fallback);
   return r.length === 1 ? pctOf(r[0]) : `${Math.round(r[0] * 100)} à ${pctOf(r[r.length - 1])}`;
 }
@@ -436,7 +457,7 @@ function upgradeTaux() {
     if (!s) return;
     const u = byId.get(s.userId);
     const r = u ? roleRate(u.role) : 0;
-    if (r && s.taux !== r) { s.taux = r; n++; }
+    if (r && !isExportSale(s) && s.taux !== r) { s.taux = r; n++; }
     if (s.plafond === undefined || s.plafond === null) s.plafond = sellerCap(u);
   });
   DB.tauxV = TAUX_VERSION;
@@ -469,6 +490,7 @@ function revenueKind(r) {
   if (/h[ée]bergement/.test(c)) return 'hebergement';
   if (/entr[ée]e/.test(c)) return 'entrees';
   if (/carte/.test(c) && /membre/.test(c)) return 'carteVip';
+  if (/export/.test(c)) return 'export';
   return null;
 }
 function autoKind(week, r) {
@@ -496,7 +518,7 @@ function revenueRowTotal(r, week) { return DAY_KEYS.reduce((a, d) => a + revCell
    commission = salaire versé (passé en compta) ; brut = commission avant plafond ; surplus = ce qui reste à la compta */
 function salesBySeller(list, pend) {
   const map = new Map();
-  const row = (id) => map.get(id) || { userId: id, carte: 0, hospitalite: 0, carteVip: 0, total: 0, count: 0, list: [], pend: [] };
+  const row = (id) => map.get(id) || { userId: id, carte: 0, hospitalite: 0, carteVip: 0, export: 0, total: 0, count: 0, list: [], pend: [] };
   list.forEach((s) => {
     const x = row(s.userId);
     const t = saleTotal(s);

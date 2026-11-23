@@ -18,27 +18,112 @@ function canEditProfile(u) {
 function canEditPieces(u) { return canEditProfile(u) || u.id === CURRENT_USER.id; }
 function piecesCount(u) { return PIECES.filter((p) => (u.pieces && u.pieces[p.id]) || (u.piecesData && u.piecesData[p.id])).length; }
 
+/* ---------- Numéro de téléphone (en jeu) ----------
+   Chacun renseigne le sien sur sa fiche ; la direction et la comptabilité modifient tous les numéros.
+   L'encadrement (direction, comptabilité, managers, gouvernement) voit les numéros de tout le monde,
+   notamment dans la fiche récapitulative ; un employé seulement le sien (le serveur ne lui envoie pas les autres). */
+function cleanPhone(v) { return String(v || '').replace(/[^\d+\-.()\s]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20); }
+function phoneOf(u) { return cleanPhone(u && u.telephone); }
+function canEditPhone(u) { return !!u && (u.id === CURRENT_USER.id || [ROLES.DIRECTION, ROLES.SECRETAIRE].includes(CURRENT_USER.role)); }
+const STAFF_ORDER = [ROLES.DIRECTION, ROLES.SECRETAIRE, ROLES.MANAGER, ROLES.EMPLOYE, ROLES.GOUVERNEMENT];
+function sortStaff(list, meFirst) {
+  return [...list].sort((a, b) => (meFirst ? (b.id === CURRENT_USER.id) - (a.id === CURRENT_USER.id) : 0)
+    || (meFirst ? 0 : (a.statut !== 'Actif') - (b.statut !== 'Actif'))
+    || STAFF_ORDER.indexOf(a.role) - STAFF_ORDER.indexOf(b.role) || subRoleOf(a).localeCompare(subRoleOf(b)) || fullName(a).localeCompare(fullName(b)));
+}
+
+let EQUIPE_VIEW = 'fiches'; // 'fiches' (cartes) ou 'recap' (fiche récapitulative, encadrement)
+function setEquipeView(v) { EQUIPE_VIEW = v === 'recap' ? 'recap' : 'fiches'; renderPage(false); }
+
 function renderEquipe() {
   const staff = DB.users.filter((u) => u.statut !== 'En attente' && canViewProfile(u));
   const mine = isEmploye();
-  let html = pageHead('Équipe', mine ? 'Ma fiche' : 'Le personnel du Pacific Bluffs', mine
-    ? 'Votre fiche au Pacific Bluffs : ajoutez vos pièces (permis, carte d\'identité, permis port d\'arme). Les fiches des autres membres ne sont visibles que par l\'encadrement.'
-    : `${staff.length} compte${staff.length > 1 ? 's' : ''} · cliquez sur une personne pour voir sa fiche et ses pièces jointes.`);
+  const recap = !mine && EQUIPE_VIEW === 'recap';
+  const seg = mine ? '' : `<div class="seg no-print" role="radiogroup" aria-label="Affichage">${[['fiches', 'Fiches'], ['recap', 'Récapitulatif']].map(([k, l]) => `<button class="seg-btn ${EQUIPE_VIEW === k ? 'is-on' : ''}" type="button" role="radio" aria-checked="${EQUIPE_VIEW === k}" onclick="setEquipeView('${k}')">${l}</button>`).join('')}</div>`;
+  const actions = seg + (recap && staff.length ? `<button class="btn btn-sm" type="button" onclick="exportEquipeCSV()">${icon('download', 'sm')}Export CSV</button><button class="btn btn-sm" type="button" onclick="window.print()">${icon('printer', 'sm')}Imprimer</button>` : '');
+  let html = pageHead('Équipe', mine ? 'Ma fiche' : recap ? 'Fiche récapitulative de l\'équipe' : 'Le personnel du Pacific Bluffs', mine
+    ? 'Votre fiche au Pacific Bluffs : votre numéro de téléphone et vos pièces (permis, carte d\'identité, permis port d\'arme). Les fiches des autres membres ne sont visibles que par l\'encadrement.'
+    : recap ? `Tout le personnel en un coup d'œil, avec les numéros de téléphone. ${staff.length} compte${staff.length > 1 ? 's' : ''}.`
+    : `${staff.length} compte${staff.length > 1 ? 's' : ''} · cliquez sur une personne pour voir sa fiche, son numéro et ses pièces jointes.`, actions);
   if (!staff.length) return html + emptyState('👥', 'Aucun compte', 'Les comptes apparaîtront ici dès leur création.');
-  const order = [ROLES.DIRECTION, ROLES.SECRETAIRE, ROLES.MANAGER, ROLES.EMPLOYE, ROLES.GOUVERNEMENT];
-  const users = [...staff].sort((a, b) => (b.id === CURRENT_USER.id) - (a.id === CURRENT_USER.id) || order.indexOf(a.role) - order.indexOf(b.role) || subRoleOf(a).localeCompare(subRoleOf(b)) || fullName(a).localeCompare(fullName(b)));
+  if (recap) return html + renderEquipeRecap(sortStaff(staff, false));
+  const users = sortStaff(staff, true);
   html += `<div class="grid-cards stagger" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">${users.map((u) => {
     const n = DB.attendances.filter((a) => a.userId === u.id).length;
     const k = piecesCount(u);
+    const tel = phoneOf(u);
     return `<article class="emp card lift" tabindex="0" onclick="openEmployeeSheet('${u.id}')" onkeydown="if(event.key==='Enter')openEmployeeSheet('${u.id}')">
       ${avatarHtml(u, 'lg')}<b>${esc(fullName(u))}${u.id === CURRENT_USER.id ? ' <small class="muted">(moi)</small>' : ''}</b>
       <span class="badge ${u.statut === 'Actif' ? 'sun' : 'bad'}">${ROLE_LABEL[u.role]}${u.statut === 'Actif' ? '' : ' · désactivé'}</span>
       ${subRoleOf(u) || gradeOf(u) ? `<small class="emp-sub">${esc([subRoleOf(u), gradeOf(u)].filter(Boolean).join(' · '))}</small>` : ''}
+      <small class="emp-tel${tel ? '' : ' is-empty'}">${icon('phone', 'sm')}${tel ? esc(tel) : (u.id === CURRENT_USER.id ? 'Ajoutez votre numéro' : 'Pas de numéro')}</small>
       <span class="emp-pieces" title="Pièces jointes">${PIECES.map((p) => `<i class="${(u.pieces && u.pieces[p.id]) || (u.piecesData && u.piecesData[p.id]) ? 'on' : ''}" title="${esc(p.label)}">${p.icon}</i>`).join('')}<small>${k}/${PIECES.length}</small></span>
       <small style="margin-top:2px">${n} service${n > 1 ? 's' : ''}</small>
     </article>`;
   }).join('')}</div>`;
   return html;
+}
+
+/* ---------- Fiche récapitulative : tout le personnel avec son numéro (encadrement) ---------- */
+function renderEquipeRecap(users) {
+  const withTel = users.filter((u) => phoneOf(u)).length;
+  const missing = users.length - withTel;
+  const rows = users.map((u) => {
+    const tel = phoneOf(u);
+    const n = DB.attendances.filter((a) => a.userId === u.id).length;
+    return `<tr${u.statut === 'Actif' ? '' : ' class="muted-row"'}>
+      <td><button class="link-btn recap-who" type="button" onclick="openEmployeeSheet('${u.id}')">${avatarHtml(u, 'sm')}<span>${esc(fullName(u))}${u.id === CURRENT_USER.id ? ' <small class="muted">(moi)</small>' : ''}</span></button></td>
+      <td>${esc(ROLE_LABEL[u.role] || '')}</td><td>${esc(subRoleOf(u) || '—')}</td><td>${esc(gradeOf(u) || '—')}</td>
+      <td class="recap-tel">${tel ? `<b>${esc(tel)}</b>` : '<span class="muted">à renseigner</span>'}</td>
+      <td>${u.statut === 'Actif' ? 'Actif' : '<span class="badge bad">Désactivé</span>'}</td>
+      <td class="num">${n}</td>
+      <td class="no-print recap-acts">${tel ? `<button class="icon-btn xs" type="button" onclick="copyPhone('${u.id}')" aria-label="Copier le numéro de ${esc(fullName(u))}" title="Copier le numéro">${icon('copy', 'sm')}</button>` : ''}${canEditPhone(u) ? `<button class="icon-btn xs" type="button" onclick="openPhoneModal('${u.id}','recap')" aria-label="${tel ? 'Modifier' : 'Ajouter'} le numéro de ${esc(fullName(u))}" title="${tel ? 'Modifier' : 'Ajouter'} le numéro">${icon('edit', 'sm')}</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+  return `<p class="field-hint" style="margin:-6px 0 12px">${withTel} numéro${withTel > 1 ? 's' : ''} renseigné${withTel > 1 ? 's' : ''} sur ${users.length}${missing ? ` · ${missing} à compléter : chacun ajoute le sien sur sa fiche${[ROLES.DIRECTION, ROLES.SECRETAIRE].includes(CURRENT_USER.role) ? ', ou modifiez-le ici' : ''}` : ''}.</p>
+    <div class="card table-card"><div class="table-scroll"><table class="tbl recap-tbl"><thead><tr><th>Nom</th><th>Rôle</th><th>Spécialité</th><th>Grade</th><th>Téléphone</th><th>Statut</th><th class="num">Services</th><th class="no-print"></th></tr></thead>
+      <tbody>${rows}</tbody></table></div></div>`;
+}
+function exportEquipeCSV() {
+  if (isEmploye()) return;
+  const users = sortStaff(DB.users.filter((u) => u.statut !== 'En attente' && canViewProfile(u)), false);
+  const q = (v) => `"${String(v === undefined || v === null ? '' : v).replace(/"/g, '""')}"`;
+  const lines = [[q('Pacific Bluffs — Fiche récapitulative de l\'équipe'), q(fmtDate(todayISO()))].join(';'), ''];
+  lines.push(['Nom', 'Rôle', 'Spécialité', 'Grade', 'Téléphone', 'Statut', 'Services'].map(q).join(';'));
+  users.forEach((u) => lines.push([q(fullName(u)), q(ROLE_LABEL[u.role] || ''), q(subRoleOf(u)), q(gradeOf(u)), q(phoneOf(u)), q(u.statut === 'Actif' ? 'Actif' : 'Désactivé'), DB.attendances.filter((a) => a.userId === u.id).length].join(';')));
+  downloadFile(`pacific-bluffs-equipe-${todayISO()}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+  logActivity('Export de l\'équipe', `${users.length} personne(s)`);
+}
+function copyPhone(userId) {
+  const tel = phoneOf(findUser(userId));
+  if (!tel) return;
+  const shown = () => toast(`Numéro : ${tel}`);
+  try { navigator.clipboard.writeText(tel).then(() => toast(`Numéro ${tel} copié.`, 'success'), shown); } catch (e) { shown(); }
+}
+/* from : 'sheet' (retour à la fiche) ou 'recap' (on reste sur le récapitulatif) */
+function openPhoneModal(userId, from) {
+  const u = findUser(userId);
+  if (!u || !canEditPhone(u)) return;
+  const me = u.id === CURRENT_USER.id;
+  const back = from === 'sheet' ? `openEmployeeSheet('${u.id}')` : 'closeModal()';
+  openModal(me ? 'Mon numéro de téléphone' : `Numéro de ${esc(fullName(u))}`, `
+    <div class="field"><label for="telIn">Numéro de téléphone (en jeu)</label><input class="input" id="telIn" type="tel" inputmode="tel" maxlength="20" autocomplete="off" value="${esc(phoneOf(u))}" placeholder="ex : 555-0123" onkeydown="if(event.key==='Enter')savePhone('${u.id}','${from === 'sheet' ? 'sheet' : 'recap'}')"></div>
+    <p class="field-hint">Visible ${me ? 'par vous et ' : ''}par l'encadrement (direction, comptabilité, managers, gouvernement), notamment dans la fiche récapitulative de l'équipe. Laissez vide pour retirer le numéro.</p>`,
+    `<button class="btn btn-sm btn-ghost" type="button" onclick="${back}">Annuler</button><button class="btn btn-sm btn-sun" type="button" onclick="savePhone('${u.id}','${from === 'sheet' ? 'sheet' : 'recap'}')">Enregistrer</button>`);
+  setTimeout(() => { const el = document.getElementById('telIn'); if (el) { el.focus(); el.select(); } }, 60);
+}
+function savePhone(userId, from) {
+  const u = findUser(userId);
+  if (!u || !canEditPhone(u)) return;
+  const raw = document.getElementById('telIn').value;
+  const tel = cleanPhone(raw);
+  if (raw.trim() && !/\d/.test(tel)) { toast('Indiquez un numéro (chiffres, espaces, + - . ( )).', 'error'); return; }
+  const old = phoneOf(u);
+  u.telephone = tel; // '' pour retirer (le serveur reçoit bien le changement)
+  if (tel !== old) logActivity('Téléphone modifié', fullName(u) + (tel ? '' : ' — numéro retiré'));
+  toast(tel ? 'Numéro enregistré.' : 'Numéro retiré.', 'success');
+  refresh();
+  if (from === 'sheet') openEmployeeSheet(userId); else closeModal();
 }
 
 /* ---------- Pièces jointes (images privées, chargées à la demande) ---------- */
@@ -157,6 +242,9 @@ function openEmployeeSheet(userId) {
   salaries.sort((a, b) => a.numero - b.numero);
   openModal(esc(fullName(u)), `
     <div class="sheet-h">${avatarHtml(u, 'lg')}<div><div class="confirm-text"><b>${esc(roleLabelFull(u))}</b></div><div class="muted" style="font-size:13.5px">${esc(u.statut)}${u.role !== ROLES.GOUVERNEMENT ? ` · part des ventes <b>${pctOf(sellerRate(u))}</b>, ${sellerCap(u) ? `<b>${fmtMoney(sellerCap(u))}</b> maximum par semaine` : 'sans maximum'}` : ''}${(isDirection() || CURRENT_USER.role === ROLES.SECRETAIRE || u.id === CURRENT_USER.id) ? ` · identifiant <b>${esc(u.username)}</b>` : ''}${canEditProfile(u) ? '' : ' · lecture seule'}</div></div></div>
+    <div class="emp-phone">${icon('phone', 'sm')}<div><small>Téléphone</small>${phoneOf(u) ? `<b>${esc(phoneOf(u))}</b>` : `<span class="muted">${u.id === CURRENT_USER.id ? 'Ajoutez votre numéro pour être joignable.' : 'Pas encore de numéro.'}</span>`}</div>
+      ${phoneOf(u) ? `<button class="icon-btn xs" type="button" onclick="copyPhone('${u.id}')" aria-label="Copier le numéro" title="Copier le numéro">${icon('copy', 'sm')}</button>` : ''}
+      ${canEditPhone(u) ? `<button class="btn btn-sm" type="button" onclick="openPhoneModal('${u.id}','sheet')">${icon(phoneOf(u) ? 'edit' : 'plus', 'sm')}${phoneOf(u) ? 'Modifier' : 'Ajouter'}</button>` : ''}</div>
     <div class="emp-stats">
       <div><b>${myAtt.length}</b><span>Services</span></div>
       <div><b>${fmtHours(totalMin)}</b><span>Heures</span></div>
@@ -286,6 +374,7 @@ function openCreateUserModal() {
       <div class="field"><label for="cuUser">Identifiant</label><input class="input" id="cuUser" placeholder="prenom.nom" autocapitalize="off"></div>
       <div class="field"><label for="cuPass">Mot de passe provisoire</label><input class="input" id="cuPass" type="text" placeholder="à communiquer à la personne"></div>
     </div>
+    <div class="field"><label for="cuTel">Téléphone (facultatif)</label><input class="input" id="cuTel" type="tel" inputmode="tel" maxlength="20" autocomplete="off" placeholder="ex : 555-0123"></div>
     <div class="field"><label for="cuRole">Rôle</label><select class="input" id="cuRole" onchange="onRoleSelect(this,'cuSub')">${roleOptions(ROLES.EMPLOYE)}</select></div>
     ${roleExtraFields('cuSub', ROLES.EMPLOYE, '', DEFAULT_GRADE)}
     <p class="field-hint">Le sous-rôle indique la spécialité de la personne dans l'équipe. Part des ventes : ${esc(commissionRule())} (le grade ne concerne que les employés). Salaire maximum par semaine : ${esc(capRule())}. Les postes de chaque soirée se choisissent dans le Programme.</p>`,
@@ -301,10 +390,11 @@ async function createUser() {
   const role = document.getElementById('cuRole').value;
   const sousRole = pickedSubRole(role, 'cuSub');
   const grade = pickedGrade(role, 'cuSub');
+  const telephone = cleanPhone(document.getElementById('cuTel').value);
   if (isShared()) {
     try {
       await syncNow();
-      await ClubApi.req('users', { body: { prenom, nom: document.getElementById('cuNom').value.trim(), username, password: pass, role, sousRole, grade } });
+      await ClubApi.req('users', { body: { prenom, nom: document.getElementById('cuNom').value.trim(), username, password: pass, role, sousRole, grade, telephone } });
       await loadRemote();
     } catch (e) { toast(e.message, 'error'); return; }
     toast('Utilisateur créé.', 'success'); closeModal(); renderPage(false);
@@ -314,6 +404,7 @@ async function createUser() {
     id: uid('u'), username, passHash: await hashPassword(username, pass), prenom, nom: document.getElementById('cuNom').value.trim() || '/',
     role, sousRole, grade, statut: 'Actif', dateCreation: todayISO(),
   };
+  if (telephone) u.telephone = telephone;
   DB.users.push(u);
   logActivity('Utilisateur créé', fullName(u));
   toast('Utilisateur créé.', 'success'); closeModal(); refresh();
@@ -328,6 +419,7 @@ function openEditUserModal(userId) {
       <div class="field"><label for="euPrenom">Prénom</label><input class="input" id="euPrenom" value="${esc(u.prenom)}"></div>
       <div class="field"><label for="euNom">Nom RP</label><input class="input" id="euNom" value="${esc(u.nom)}"></div>
     </div>
+    <div class="field"><label for="euTel">Téléphone</label><input class="input" id="euTel" type="tel" inputmode="tel" maxlength="20" autocomplete="off" value="${esc(phoneOf(u))}" placeholder="ex : 555-0123"></div>
     ${dir ? `<div class="field"><label for="euRole">Rôle</label><select class="input" id="euRole" onchange="onRoleSelect(this,'euSub')">${roleOptions(u.role)}</select></div>
       ${roleExtraFields('euSub', u.role, subRoleOf(u), gradeOf(u))}
       <p class="field-hint" style="margin:-4px 0 14px">Part des ventes : ${esc(commissionRule())}. Salaire maximum par semaine : ${esc(capRule())}. Après un changement de rôle ou de grade, le nouveau taux et le nouveau maximum comptent pour les ventes notées ensuite.</p>
@@ -345,9 +437,13 @@ async function saveEditUser(userId) {
   if (u.id === CURRENT_USER.id && newRole !== ROLES.DIRECTION && u.role === ROLES.DIRECTION && !DB.users.some((x) => x.id !== u.id && x.role === ROLES.DIRECTION && x.statut === 'Actif')) {
     toast('Impossible : vous êtes la seule personne de la direction.', 'error'); return;
   }
-  const oldGrade = gradeOf(u), oldRate = sellerRate(u), oldCap = sellerCap(u);
+  const telEl = document.getElementById('euTel');
+  const tel = telEl ? cleanPhone(telEl.value) : phoneOf(u);
+  if (telEl && telEl.value.trim() && !/\d/.test(tel)) { toast('Indiquez un numéro de téléphone valide (chiffres).', 'error'); return; }
+  const oldGrade = gradeOf(u), oldRate = sellerRate(u), oldCap = sellerCap(u), oldTel = phoneOf(u);
   u.prenom = prenom;
   u.nom = document.getElementById('euNom').value.trim() || '/';
+  if (tel !== oldTel) u.telephone = tel;
   u.role = newRole;
   u.sousRole = isDirection() ? pickedSubRole(newRole, 'euSub') : subRoleOf(u);
   u.grade = isDirection() ? pickedGrade(newRole, 'euSub') : gradeOf(u);
@@ -361,7 +457,8 @@ async function saveEditUser(userId) {
   logActivity('Utilisateur modifié', fullName(u)
     + (newGrade !== oldGrade ? ` — grade : ${oldGrade || 'aucun'} → ${newGrade || 'aucun'}` : '')
     + (newRate !== oldRate ? ` — part des ventes : ${pctOf(oldRate)} → ${pctOf(newRate)}` : '')
-    + (newCap !== oldCap ? ` — salaire max : ${capShort(oldCap)} → ${capShort(newCap)}` : ''));
+    + (newCap !== oldCap ? ` — salaire max : ${capShort(oldCap)} → ${capShort(newCap)}` : '')
+    + (tel !== oldTel ? (tel ? ' — téléphone modifié' : ' — téléphone retiré') : ''));
   toast('Utilisateur modifié.', 'success'); closeModal(); renderShell(); refresh();
 }
 function approveUser(userId) {
