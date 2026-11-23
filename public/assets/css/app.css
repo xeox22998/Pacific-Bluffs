@@ -503,6 +503,15 @@ button.ev-row:hover{background:var(--surface-2);transform:translateX(4px)}
 .bar-auto{border:0;background:var(--sun-soft,rgba(255,110,90,.12));color:var(--sun-text);font:inherit;font-weight:600;padding:5px 8px;border-radius:10px;cursor:pointer;white-space:nowrap}
 .auto-tag{display:flex;align-items:center;gap:4px;width:fit-content;margin-top:4px;font-size:11.5px;font-weight:500;color:var(--sun-text);white-space:nowrap}
 .auto-tag .i{width:13px;height:13px}
+/* Primes / salaires en plus (comptabilité, salaires versés) */
+.auto-tag.muted-tag{color:var(--muted)}
+.sal-tbl .sal-role{display:block;font-size:11.5px;margin-top:1px}
+.prime-tag{display:flex;align-items:center;gap:4px;width:fit-content;max-width:100%;margin-top:4px;font-size:11.5px;font-weight:600;color:var(--ink);white-space:normal}
+.prime-tag .i{width:13px;height:13px;flex-shrink:0;color:var(--sun-text)}
+.prime-btn{border:1px dashed var(--line-strong);background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:600;padding:5px 9px;border-radius:10px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;transition:color .2s,border-color .2s,background-color .2s}
+.prime-btn .i{width:13px;height:13px}
+.prime-btn:hover{color:var(--sun-text);border-color:var(--sun)}
+.prime-btn.has{border-style:solid;border-color:transparent;background:var(--sun-soft,rgba(255,110,90,.12));color:var(--sun-text)}
 .field-hint .i{width:14px;height:14px;display:inline-block;vertical-align:-2px;color:var(--sun-text)}
 .auto-sum{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end}
 .link-btn{font:inherit;font-weight:600;color:inherit;text-align:left;cursor:pointer;border-bottom:1px dashed var(--line-strong);transition:color .2s,border-color .2s}

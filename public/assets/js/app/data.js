@@ -537,9 +537,43 @@ function weekCommissionRows(week) { return salesBySeller(comptaSales(week)); }
 /* Charge « Salaires staff » : salaires plafonnés (le surplus des plafonds reste dans la compta) */
 function weekCommissionTotal(week) { return round2(weekCommissionRows(week).reduce((t, x) => t + x.commission, 0)); }
 function weekSurplusTotal(week) { return round2(weekCommissionRows(week).reduce((t, x) => t + x.surplus, 0)); }
-/* Charge « Salaires staff » : saisie manuelle + commissions calculées */
+/* ---------- Primes et salaires en plus (23/11/2026) ----------
+   En plus des commissions des fiches de ventes, la direction et la comptabilité donnent une prime ou un salaire
+   en plus à n'importe quel membre du staff (ex : un manager qui gère tout l'établissement et vend peu au bar).
+   Gardée par semaine dans week.commissionPay[userId] (avec le versement) : prime ($), primeMotif, primeFixe
+   (reconduite toute seule dans la semaine suivante, le lundi à 6h : salaire fixe). Pas de salaire maximum sur la
+   prime (le maximum ne concerne que les commissions) ; comptée dans la charge « Salaires staff ». */
+const PRIME_MAX = 1000000;
+function primeOf(week, userId) { const p = week && week.commissionPay && week.commissionPay[userId]; const v = Number(p && p.prime) || 0; return v > 0 ? round2(Math.min(v, PRIME_MAX)) : 0; }
+function weekPrimeRows(week) {
+  const pay = (week && week.commissionPay) || {};
+  return Object.keys(pay).filter((id) => primeOf(week, id) > 0)
+    .map((id) => ({ userId: id, prime: primeOf(week, id), motif: String(pay[id].primeMotif || ''), fixe: !!pay[id].primeFixe }));
+}
+function weekPrimeTotal(week) { return round2(weekPrimeRows(week).reduce((t, x) => t + x.prime, 0)); }
+/* Salaires de la semaine, une ligne par personne : commission des ventes (plafonnée) + prime */
+function weekPayRows(week) {
+  const comm = weekCommissionRows(week);
+  const rows = comm.map((x) => ({ userId: x.userId, comm: x, commission: x.commission, prime: primeOf(week, x.userId) }));
+  weekPrimeRows(week).forEach((p) => { if (!rows.some((r) => r.userId === p.userId)) rows.push({ userId: p.userId, comm: null, commission: 0, prime: p.prime }); });
+  return rows.map((r) => ({ ...r, salaire: round2(r.commission + r.prime) }));
+}
+/* Primes reconduites dans une nouvelle semaine (salaire fixe), seulement pour les comptes encore actifs */
+function carryPrimes(prev, activeIds) {
+  const out = {};
+  const pay = (prev && prev.commissionPay) || {};
+  Object.keys(pay).forEach((id) => {
+    const p = pay[id];
+    if (!p || !p.primeFixe || !(primeOf(prev, id) > 0) || (activeIds && !activeIds.includes(id))) return;
+    out[id] = { prime: primeOf(prev, id), primeMotif: String(p.primeMotif || '').slice(0, 80), primeFixe: true };
+  });
+  return out;
+}
+
+/* Charge « Salaires staff » : saisie manuelle + commissions calculées + primes */
 function isSalaryExpense(week, e) { return (week.expenses || []).find((x) => /salaire/i.test(x.categorie || '')) === e; }
-function expenseValue(week, e) { return (Number(e.montant) || 0) + (isSalaryExpense(week, e) ? weekCommissionTotal(week) : 0); }
+function salaryAutoTotal(week) { return round2(weekCommissionTotal(week) + weekPrimeTotal(week)); }
+function expenseValue(week, e) { return (Number(e.montant) || 0) + (isSalaryExpense(week, e) ? salaryAutoTotal(week) : 0); }
 function weekTotals(week) {
   const recettes = (week.revenues || []).reduce((s, r) => s + revenueRowTotal(r, week), 0);
   const charges = (week.expenses || []).reduce((s, e) => s + expenseValue(week, e), 0);
@@ -575,8 +609,9 @@ function liveWeek() {
   return weeks.find((w) => w.dateDebut && w.dateFin && w.dateDebut <= d && d <= w.dateFin) || weeks[weeks.length - 1] || null;
 }
 /* Semaines à créer pour que la soirée `today` ait sa semaine : du lundi au dimanche, numéro suivant, mêmes
-   lignes que la semaine d'avant (à 0), coffre reporté (soldeAuto). Même calcul que weeksToCreate dans api.mjs. */
-function weeksToCreate(weeks, today) {
+   lignes que la semaine d'avant (à 0), coffre reporté (soldeAuto), primes « chaque semaine » reconduites.
+   Même calcul que weeksToCreate dans api.mjs. */
+function weeksToCreate(weeks, today, activeIds) {
   const dated = weeks.filter((w) => w && /^\d{4}-\d{2}-\d{2}$/.test(w.dateDebut || '') && /^\d{4}-\d{2}-\d{2}$/.test(w.dateFin || ''));
   if (dated.some((w) => w.dateDebut <= today && today <= w.dateFin)) return [];
   const before = dated.filter((w) => w.dateFin < today).sort((a, b) => a.dateFin.localeCompare(b.dateFin));
@@ -588,6 +623,7 @@ function weeksToCreate(weeks, today) {
   const revRows = prev && (prev.revenues || []).length ? prev.revenues.map((r) => String((r && r.categorie) || '').trim()).filter(Boolean) : REVENUE_CATS;
   const expRows = prev && (prev.expenses || []).length ? prev.expenses.map((e) => String((e && e.categorie) || '').trim()).filter(Boolean) : EXPENSE_CATS;
   let num = weeks.reduce((m, w) => Math.max(m, Number(w && w.numero) || 0), 0);
+  const primes = carryPrimes(prev, activeIds);
   const out = [];
   while (start <= today && out.length < 60) {
     let end = shiftISO(mondayOf(start), 6);
@@ -598,6 +634,7 @@ function weeksToCreate(weeks, today) {
       revenues: revRows.map((c) => ({ categorie: c, lun: 0, mar: 0, mer: 0, jeu: 0, ven: 0, sam: 0, dim: 0, autre: 0 })),
       expenses: expRows.map((c) => ({ categorie: c, montant: 0, observations: '' })),
       salaries: [], members: [], menuSales: {}, observations: '', documentSource: '',
+      commissionPay: JSON.parse(JSON.stringify(primes)),
     });
     start = shiftISO(end, 1);
   }
@@ -608,7 +645,7 @@ function weeksToCreate(weeks, today) {
 function autoWeeks() {
   if (!DB || isShared()) return 0;
   DB.accountingWeeks = DB.accountingWeeks || [];
-  const add = weeksToCreate(DB.accountingWeeks, serviceDay());
+  const add = weeksToCreate(DB.accountingWeeks, serviceDay(), (DB.users || []).filter((u) => u && u.statut === 'Actif').map((u) => u.id));
   if (!add.length) return 0;
   DB.accountingWeeks.push(...add);
   logActivity('Nouvelle semaine comptable', add.map((w) => `Semaine ${w.numero} (${fmtDateShort(w.dateDebut)} → ${fmtDateShort(w.dateFin)})`).join(', ') + (add.length > 1 ? ' — ouvertes' : ' — ouverte') + ' automatiquement (lundi 6h)');

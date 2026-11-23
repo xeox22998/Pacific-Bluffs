@@ -143,12 +143,15 @@ function renderDashboard() {
     // salaire plafonné au maximum de la semaine (le surplus reste à la compta)
     const myPay = sellerPay(doneList, pendList);
     const myCap = myPay.cap || (myWeek.length ? 0 : sellerCap(u));
-    const payFoot = myPay.surplus ? `max ${fmtMoney(myPay.cap)} atteint` : myPay.pending ? `+ ${fmtMoney(myPay.pending)} à 6h` : `${pctOf(sellerRate(u))} de mes ventes${gradeOf(u) ? ` (${esc(gradeOf(u).toLowerCase())})` : ''} · ${myCap ? `max ${fmtMoney(myCap)}` : 'sans max'}`;
+    // prime / salaire en plus donné dans la comptabilité (sans maximum)
+    const accW = weekForDate(mon);
+    const myPrime = accW ? primeOf(accW, u.id) : 0;
+    const payFoot = (myPrime ? `dont ${fmtMoney(myPrime)} de prime · ` : '') + (myPay.surplus ? `max ${fmtMoney(myPay.cap)} atteint` : myPay.pending ? `+ ${fmtMoney(myPay.pending)} à 6h` : `${pctOf(sellerRate(u))} de mes ventes${gradeOf(u) ? ` (${esc(gradeOf(u).toLowerCase())})` : ''} · ${myCap ? `max ${fmtMoney(myCap)}` : 'sans max'}`);
     html += `<div class="grid-2c">
       <section>${sectionHead('Mon prochain service')}${next ? renderServiceCard(next.event, next.assignment, u.id) : emptyState('📭', 'Aucun service prévu', 'Prenez un poste depuis le Programme pour apparaître ici.')}</section>
       <section>${sectionHead('Mes chiffres')}<div class="stats-row stagger" style="grid-template-columns:1fr 1fr">
         ${statTile('Mes ventes de la semaine', 'receipt', myDone + myPend, { money: true, foot: salaryWeekLabel(mon) })}
-        ${statTile('Mon salaire de la semaine', 'wallet', myPay.done, { money: true, cls: 'dark', foot: payFoot })}
+        ${statTile('Mon salaire de la semaine', 'wallet', round2(myPay.done + myPrime), { money: true, cls: 'dark', foot: payFoot })}
         ${statTile('Services', 'calendar', myAtt.length)}
         ${statTile('Heures effectuées', 'clock', hoursDec(totalMin), { suffix: ' h' })}
         ${statTile('Présences validées', 'checkCircle', myAtt.filter((a) => a.statut === 'Validé').length)}

@@ -433,24 +433,31 @@ function renderDossier() {
     <div class="pill-row" role="tablist" aria-label="Semaines du dossier">${mondays.map((m) => `<button class="pill plain ${m === DOSSIER_WEEK ? 'is-active' : ''}" type="button" role="tab" aria-selected="${m === DOSSIER_WEEK}" onclick="selectDossierWeek('${m}')">${m === curMon ? 'Cette semaine' : 'Sem. du ' + fmtDateShort(m).slice(0, 5)}</button>`).join('')}</div>`;
 
   if (all) {
-    // salaires plafonnés : salaire (ventes passées à 6h) + en attente (ce soir) ≤ maximum de la semaine
+    // salaires plafonnés : salaire (ventes passées à 6h) + en attente (ce soir) ≤ maximum de la semaine,
+    // + la prime / le salaire en plus donné dans la comptabilité (sans maximum), même sans ventes
     const rows = salesBySeller(done, pending);
-    const tot = rows.reduce((a, x) => ({ carte: a.carte + x.carte, hospitalite: a.hospitalite + x.hospitalite, carteVip: a.carteVip + x.carteVip, export: a.export + x.export, total: a.total + x.total, commission: a.commission + x.pay.done, pending: a.pending + x.pay.pending, surplus: a.surplus + x.pay.surplus }), { carte: 0, hospitalite: 0, carteVip: 0, export: 0, total: 0, commission: 0, pending: 0, surplus: 0 });
-    html += rows.length ? `<div class="card table-card"><div class="table-scroll"><table class="tbl"><thead><tr><th>Employé</th><th class="num">Carte</th><th class="num">Hospitalité</th><th class="num">Cartes VIP</th><th class="num">Export</th><th class="num">Total ventes</th><th class="num">Salaire</th><th class="num">En attente (6h)</th><th class="num">Au-delà du max</th><th>Versement</th></tr></thead><tbody>
+    const zero = { done: 0, pending: 0, surplus: 0 };
+    (acc ? weekPrimeRows(acc) : []).forEach((p) => {
+      if (!rows.some((x) => x.userId === p.userId)) rows.push({ userId: p.userId, carte: 0, hospitalite: 0, carteVip: 0, export: 0, total: 0, pay: zero, taux: '', plafond: 0, noSales: true });
+    });
+    const primeFor = (id) => (acc ? primeOf(acc, id) : 0);
+    const tot = rows.reduce((a, x) => ({ carte: a.carte + x.carte, hospitalite: a.hospitalite + x.hospitalite, carteVip: a.carteVip + x.carteVip, export: a.export + x.export, total: a.total + x.total, commission: a.commission + x.pay.done, prime: a.prime + primeFor(x.userId), pending: a.pending + x.pay.pending, surplus: a.surplus + x.pay.surplus }), { carte: 0, hospitalite: 0, carteVip: 0, export: 0, total: 0, commission: 0, prime: 0, pending: 0, surplus: 0 });
+    html += rows.length ? `<div class="card table-card"><div class="table-scroll"><table class="tbl"><thead><tr><th>Employé</th><th class="num">Carte</th><th class="num">Hospitalité</th><th class="num">Cartes VIP</th><th class="num">Export</th><th class="num">Total ventes</th><th class="num">Commission</th><th class="num">Prime / en plus</th><th class="num">Salaire</th><th class="num">En attente (6h)</th><th class="num">Au-delà du max</th><th>Versement</th></tr></thead><tbody>
       ${rows.map((x) => {
         const pv = pay[x.userId] || {};
         const seller = DB.users.find((u) => u.id === x.userId);
+        const prime = primeFor(x.userId);
         // taux de la semaine (celui des ventes), grade actuel de l'employé et salaire maximum
-        const tag = [x.taux, gradeOf(seller), x.plafond ? 'max ' + fmtMoney(x.plafond) : 'sans max'].filter(Boolean).join(' · ');
+        const tag = x.noSales ? (seller ? roleLabel(seller) + ' · pas de ventes' : 'pas de ventes') : [x.taux, gradeOf(seller), x.plafond ? 'max ' + fmtMoney(x.plafond) : 'sans max'].filter(Boolean).join(' · ');
         return `<tr><td><button class="link-btn" type="button" onclick="setVenteSeller('${x.userId}')">${esc(userLabel(x.userId))}</button><small class="muted seller-rate">${esc(tag)}</small></td><td class="num">${x.carte ? fmtMoney(x.carte) : '—'}</td><td class="num">${x.hospitalite ? fmtMoney(x.hospitalite) : '—'}</td><td class="num">${x.carteVip ? fmtMoney(x.carteVip) : '—'}</td><td class="num">${x.export ? fmtMoney(x.export) : '—'}</td>
-          <td class="num">${fmtMoney(x.total)}</td><td class="num strong">${fmtMoney(x.pay.done)}</td><td class="num">${x.pay.pending ? '+ ' + fmtMoney(x.pay.pending) : '—'}</td>
+          <td class="num">${x.total ? fmtMoney(x.total) : '—'}</td><td class="num">${x.noSales ? '—' : fmtMoney(x.pay.done)}</td><td class="num">${prime ? `<span title="${esc(pv.primeMotif || 'Prime')}${pv.primeFixe ? ' · chaque semaine' : ''}">+ ${fmtMoney(prime)}</span>` : '—'}</td><td class="num strong">${fmtMoney(x.pay.done + prime)}</td><td class="num">${x.pay.pending ? '+ ' + fmtMoney(x.pay.pending) : '—'}</td>
           <td class="num">${x.pay.surplus ? `<span title="Reste dans la compta, sans commission">${fmtMoney(x.pay.surplus)}</span>` : '—'}</td>
           <td>${pv.valide ? `<span class="badge good">Versé${pv.dateVersement ? ' le ' + fmtDateShort(pv.dateVersement) : ''}</span>` : statusBadge('À valider')}</td></tr>`;
       }).join('')}
-      <tr class="total"><td>Total</td><td class="num">${fmtMoney(tot.carte)}</td><td class="num">${fmtMoney(tot.hospitalite)}</td><td class="num">${fmtMoney(tot.carteVip)}</td><td class="num">${fmtMoney(tot.export)}</td><td class="num">${fmtMoney(tot.total)}</td><td class="num">${fmtMoney(tot.commission)}</td><td class="num">${tot.pending ? '+ ' + fmtMoney(tot.pending) : '—'}</td><td class="num">${tot.surplus ? fmtMoney(tot.surplus) : '—'}</td><td></td></tr>
+      <tr class="total"><td>Total</td><td class="num">${fmtMoney(tot.carte)}</td><td class="num">${fmtMoney(tot.hospitalite)}</td><td class="num">${fmtMoney(tot.carteVip)}</td><td class="num">${fmtMoney(tot.export)}</td><td class="num">${fmtMoney(tot.total)}</td><td class="num">${fmtMoney(tot.commission)}</td><td class="num">${tot.prime ? '+ ' + fmtMoney(tot.prime) : '—'}</td><td class="num">${fmtMoney(tot.commission + tot.prime)}</td><td class="num">${tot.pending ? '+ ' + fmtMoney(tot.pending) : '—'}</td><td class="num">${tot.surplus ? fmtMoney(tot.surplus) : '—'}</td><td></td></tr>
     </tbody></table></div></div>
-    <p class="field-hint" style="margin-top:10px">Les salaires de ce dossier sont repris automatiquement dans la comptabilité (« Salaires versés » et charge « Salaires staff »). La direction et la comptabilité y cochent le versement.${tot.surplus ? ` « Au-delà du max » : commission non versée, qui reste dans la compta (bénéfice), sans commission.` : ''}</p>`
-    : emptyState('🧾', 'Aucune vente cette semaine', 'Les ventes notées sur les fiches apparaîtront ici dès 6h le lendemain matin.');
+    <p class="field-hint" style="margin-top:10px">Les salaires de ce dossier sont repris automatiquement dans la comptabilité (« Salaires versés » et charge « Salaires staff »). La direction et la comptabilité y cochent le versement et peuvent ajouter une <b>prime / un salaire en plus</b> (sans maximum).${tot.surplus ? ` « Au-delà du max » : commission non versée, qui reste dans la compta (bénéfice), sans commission.` : ''}</p>`
+    : emptyState('🧾', 'Aucune vente cette semaine', 'Les ventes notées sur les fiches apparaîtront ici dès 6h le lendemain matin. Les primes données dans la comptabilité apparaissent aussi ici.');
     return html + '</section>';
   }
 
@@ -470,17 +477,21 @@ function renderDossier() {
   // salaire plafonné au maximum de la semaine (le surplus reste à la compta)
   const sp = sellerPay(done, pending);
   const cap0 = sp.cap || (sales.length ? 0 : userCap(uid0));
+  // prime / salaire en plus donné dans la comptabilité (sans maximum)
+  const prime0 = acc ? primeOf(acc, uid0) : 0;
+  const primeTxt = prime0 ? `${fmtMoney(prime0)} de prime${pv.primeMotif ? ` (${esc(pv.primeMotif)})` : ''}${pv.primeFixe ? ', chaque semaine' : ''}` : '';
   html += `<div class="dossier">
-    <div class="card dossier-sum"><span class="lbl">${scopeLabel() === 'me' ? 'Mon salaire de la semaine' : 'Salaire de la semaine'}</span><span class="v">${fmtMoney(sp.done)}</span>
-      <small>${doneTxt}${sp.pending ? ` · + ${fmtMoney(sp.pending)} ce soir, ajoutés à 6h` : ''}${g0 ? ` · grade ${esc(g0.toLowerCase())}` : ''} · ${cap0 ? `max ${fmtMoney(cap0)} par semaine` : 'sans maximum'}${sp.surplus ? `<br><b>Max atteint</b> : ${fmtMoney(sp.surplus)} de commission au-delà restent dans la compta` : ''}<br>${salaryWeekLabel(from)}</small>
+    <div class="card dossier-sum"><span class="lbl">${scopeLabel() === 'me' ? 'Mon salaire de la semaine' : 'Salaire de la semaine'}</span><span class="v">${fmtMoney(sp.done + prime0)}</span>
+      <small>${sales.length || !prime0 ? doneTxt : 'Pas de ventes'}${prime0 ? ` + <b>${primeTxt}</b>` : ''}${sp.pending ? ` · + ${fmtMoney(sp.pending)} ce soir, ajoutés à 6h` : ''}${g0 ? ` · grade ${esc(g0.toLowerCase())}` : ''} · ${cap0 ? `max ${fmtMoney(cap0)} par semaine${prime0 ? ' (hors prime)' : ''}` : 'sans maximum'}${sp.surplus ? `<br><b>Max atteint</b> : ${fmtMoney(sp.surplus)} de commission au-delà restent dans la compta` : ''}<br>${salaryWeekLabel(from)}</small>
       <span>${pv.valide ? `<span class="badge good">Versé${pv.dateVersement ? ' le ' + fmtDateShort(pv.dateVersement) : ''}</span>` : statusBadge('À valider')}</span></div>
     <div class="card table-card"><div class="table-scroll"><table class="tbl compact"><thead><tr><th>Soirée</th><th class="num">Carte</th><th class="num">Hospitalité</th><th class="num">Cartes VIP</th><th class="num">Export</th><th class="num">Total</th><th class="num">Part ${rateTxt}${doneEx.length || pending.some(isExportSale) ? ` · ${EXPORT_SHARE} export` : ''}</th><th>État</th></tr></thead><tbody>
       ${per.map((x) => `<tr${x.n ? '' : ' class="muted-row"'}><td><button class="link-btn" type="button" onclick="selectVenteDay('${x.d}')">${esc(fmtDate(x.d))}</button></td><td class="num">${x.carte ? fmtMoney(x.carte) : '—'}</td><td class="num">${x.hospitalite ? fmtMoney(x.hospitalite) : '—'}</td><td class="num">${x.carteVip ? fmtMoney(x.carteVip) : '—'}</td><td class="num">${x.export ? fmtMoney(x.export) : '—'}</td>
         <td class="num strong">${x.total ? fmtMoney(x.total) : '—'}</td><td class="num">${x.total ? fmtMoney(x.part) : '—'}</td>
         <td>${x.d > today ? '<span class="muted">À venir</span>' : x.open ? '<span class="badge warn">En cours · 6h</span>' : (x.n ? '<span class="badge good">Transféré</span>' : '<span class="muted">—</span>')}</td></tr>`).join('')}
       <tr class="total"><td>Total de la semaine</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.carte, 0))}</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.hospitalite, 0))}</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.carteVip, 0))}</td><td class="num">${fmtMoney(per.reduce((a, x) => a + x.export, 0))}</td><td class="num">${fmtMoney(doneTotal + pendTotal)}</td><td class="num">${fmtMoney(sp.brut)}</td><td></td></tr>
-      ${sp.surplus ? `<tr><td colspan="6">Au-delà du salaire maximum (${fmtMoney(sp.cap)}) : reste dans la compta</td><td class="num">− ${fmtMoney(sp.surplus)}</td><td></td></tr>
-      <tr class="total"><td colspan="6">Salaire de la semaine</td><td class="num">${fmtMoney(sp.salaire)}</td><td></td></tr>` : ''}
+      ${sp.surplus ? `<tr><td colspan="6">Au-delà du salaire maximum (${fmtMoney(sp.cap)}) : reste dans la compta</td><td class="num">− ${fmtMoney(sp.surplus)}</td><td></td></tr>` : ''}
+      ${prime0 ? `<tr><td colspan="6">Prime / salaire en plus${pv.primeMotif ? ` — ${esc(pv.primeMotif)}` : ''}${pv.primeFixe ? ' (chaque semaine)' : ''}</td><td class="num">+ ${fmtMoney(prime0)}</td><td></td></tr>` : ''}
+      ${sp.surplus || prime0 ? `<tr class="total"><td colspan="6">Salaire de la semaine</td><td class="num">${fmtMoney(sp.salaire + prime0)}</td><td></td></tr>` : ''}
     </tbody></table></div></div>
   </div>`;
   return html + '</section>';
@@ -495,13 +506,19 @@ function exportDossierCSV() {
   const q = (v) => `"${String(v === undefined || v === null ? '' : v).replace(/"/g, '""')}"`;
   const lines = [[q(`Pacific Bluffs — Dossier salaires`), q(`du lundi ${from} 6h au lundi ${shiftISO(from, 7)} 6h`), q(`Commission ${commissionRule()}`)].join(';'), ''];
   lines.push([q(`Salaire maximum par semaine : ${capRule()} ; ${SURPLUS_RULE}`)].join(';'), [q(EXPORT_RULE)].join(';'), '');
-  lines.push(['Employé', 'Grade', 'Taux', 'Ventes carte', 'Hospitalité', 'Cartes VIP', 'Export', 'Total ventes', 'Commission', 'Salaire max', 'Salaire', 'Dont en attente (6h)', 'Au-delà du max (reste à la compta)'].map(q).join(';'));
+  lines.push(['Employé', 'Grade', 'Taux', 'Ventes carte', 'Hospitalité', 'Cartes VIP', 'Export', 'Total ventes', 'Commission', 'Salaire max', 'Salaire (commissions)', 'Dont en attente (6h)', 'Au-delà du max (reste à la compta)', 'Prime / en plus', 'Motif de la prime', 'Salaire total'].map(q).join(';'));
   const rowsAll = salesBySeller(sales.filter(isSaleTransferred), sales.filter((s) => !isSaleTransferred(s)));
-  // total des ventes de la semaine (passées à 6h et en cours) pour chaque vendeur
+  const acc = weekForDate(from) || weekForDate(to);
+  const accPay = (acc && acc.commissionPay) || {};
+  // total des ventes de la semaine (passées à 6h et en cours) pour chaque vendeur, + sa prime de la compta
   rowsAll.forEach((x) => {
     const mine = sales.filter((s) => s.userId === x.userId);
     const by = (t) => sumSales(mine.filter((s) => saleType(s) === t));
-    lines.push([q(userLabel(x.userId)), q(gradeOf(DB.users.find((u) => u.id === x.userId))), q(x.taux), by('carte'), by('hospitalite'), by('carteVip'), by('export'), sumSales(mine), x.pay.brut, x.plafond ? x.plafond : q('sans max'), x.pay.salaire, x.pay.pending, x.pay.surplus].join(';'));
+    const prime = acc ? primeOf(acc, x.userId) : 0;
+    lines.push([q(userLabel(x.userId)), q(gradeOf(DB.users.find((u) => u.id === x.userId))), q(x.taux), by('carte'), by('hospitalite'), by('carteVip'), by('export'), sumSales(mine), x.pay.brut, x.plafond ? x.plafond : q('sans max'), x.pay.salaire, x.pay.pending, x.pay.surplus, prime, q(prime ? accPay[x.userId].primeMotif || 'Prime' : ''), x.pay.salaire + prime].join(';'));
+  });
+  (acc ? weekPrimeRows(acc) : []).filter((p) => !rowsAll.some((x) => x.userId === p.userId)).forEach((p) => {
+    lines.push([q(userLabel(p.userId)), q(gradeOf(DB.users.find((u) => u.id === p.userId))), q(''), 0, 0, 0, 0, 0, 0, q(''), 0, 0, 0, p.prime, q(p.motif || 'Prime'), p.prime].join(';'));
   });
   lines.push('');
   lines.push(['Soirée', 'Heure', 'Vendeur', 'Fiche', 'Article', 'Client', 'Quantité', 'Prix', 'Total', 'Taux', 'Part', 'État'].map(q).join(';'));

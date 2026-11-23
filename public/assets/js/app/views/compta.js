@@ -10,6 +10,9 @@
    Semaines : du lundi au dimanche. Chaque lundi à 6h, la semaine suivante s'ouvre toute seule
    (serveur : ensureWeeks dans api.mjs ; mode local : autoWeeks dans data.js), avec le coffre reporté
    de la semaine d'avant (soldeAuto). Les semaines d'avant restent modifiables.
+   Salaires versés : une ligne par personne = commissions des fiches de ventes (automatiques, plafonnées) +
+   prime / salaire en plus (direction et comptabilité, sans maximum, option « chaque semaine » reconduite le
+   lundi à 6h) ; le tout compté dans la charge « Salaires staff ». Les anciennes lignes libres restent affichées.
    ===================================================================== */
 
 let currentWeekId = null;
@@ -93,9 +96,9 @@ function renderComptabilite() {
     <div class="card"><span class="lbl">− Charges</span><span class="v">${fmtMoney(t.charges)}</span></div>
     <div class="card"><span class="lbl">= Nouveau solde</span><span class="v" style="color:var(--sun-text)">${fmtMoney(t.nouveauSolde)}</span></div>
   </div></section>`;
-  // Salaires : commissions des fiches de ventes + lignes saisies à la main
-  html += `<section class="section">${sectionHead('Salaires versés', weekCommissionRows(week).length + (week.salaries || []).length, editStruct ? `<button class="btn btn-xs" type="button" onclick="addSalaryRow('${week.id}')">${icon('plus', 'sm')}Ligne</button>` : '')}
-    <p class="field-hint" style="margin:-6px 0 12px">Chaque vendeur touche une part de ses ventes : ${commissionRule()} ; ${EXPORT_RULE}. Salaire maximum par semaine : ${capRule()} ; ${SURPLUS_RULE}. Ces lignes viennent du dossier salaires de l'onglet Ventes : elles sont calculées toutes seules et comptées dans la charge « Salaires staff ». Ajoutez une ligne pour une prime ou un autre salaire.</p>
+  // Salaires : commissions des fiches de ventes (automatiques) + primes / salaires en plus (direction, comptabilité)
+  html += `<section class="section" id="salSection">${sectionHead('Salaires versés', weekPayRows(week).length + (week.salaries || []).length, editStruct ? `<button class="btn btn-xs btn-sun" type="button" onclick="openPrimeModal('${week.id}')">${icon('plus', 'sm')}Prime / salaire en plus</button>` : '')}
+    <p class="field-hint" style="margin:-6px 0 12px">${icon('receipt', 'sm')} <b>Commissions</b> : ajoutées toutes seules depuis les fiches de ventes de l'onglet Ventes (${commissionRule()} ; ${EXPORT_RULE} ; salaire maximum par semaine : ${capRule()} ; ${SURPLUS_RULE}). <b>Prime / salaire en plus</b> : la direction et la comptabilité peuvent ajouter un montant en plus des commissions à n'importe qui, même sans ventes — par exemple un manager qui gère tout l'établissement et n'est pas souvent au bar. La prime n'a pas de maximum ; cochez « chaque semaine » pour un salaire fixe reconduit tout seul le lundi à 6h. Tout est compté dans la charge « Salaires staff ».</p>
     ${renderSalaryTable(week, editStruct)}</section>`;
   // Ventes de la carte
   html += `<section class="section">${sectionHead('Ventes de la carte — récap de la semaine', null, `<span class="badge nodot">${comptaSales(week, 'carte').length ? 'calculé' : 'informatif'}</span>`)}${renderMenuSales(week, canFill)}</section>`;
@@ -152,14 +155,18 @@ function renderExpenseTable(week, editStruct, canFill) {
   let total = 0;
   const rows = week.expenses.map((e, i) => {
     total += expenseValue(week, e);
-    // « Salaires staff » : la saisie (primes, autres salaires) + les commissions des fiches de ventes
-    const comm = isSalaryExpense(week, e) ? weekCommissionTotal(week) : 0;
+    // « Salaires staff » : la saisie + les commissions des fiches de ventes + les primes / salaires en plus
+    const isSal = isSalaryExpense(week, e);
+    const comm = isSal ? weekCommissionTotal(week) : 0;
+    const primes = isSal ? weekPrimeTotal(week) : 0;
+    const auto = round2(comm + primes);
     // commissions au-delà des salaires maximums : pas comptées en charge, elles restent dans le bénéfice
     const surplus = comm ? weekSurplusTotal(week) : 0;
     const manual = canFill ? moneyInput(e.montant, `updateExpenseCell('${week.id}',${i},'montant',this.value)`) : fmtMoney(Number(e.montant) || 0);
-    return `<tr${comm ? ' class="bar-row"' : ''}>
-      <td>${editStruct ? textInput(e.categorie, `updateExpenseCell('${week.id}',${i},'categorie',this.value)`, 190) : `<span class="strong">${esc(e.categorie)}</span>`}${comm ? `<span class="auto-tag">${icon('receipt', 'sm')}+ commissions des ventes${surplus ? ` · ${fmtMoney(surplus)} au-delà des max restent à la compta` : ''}</span>` : ''}</td>
-      <td class="num">${comm ? `<span class="auto-sum">${manual}<button class="bar-auto" type="button" onclick="openVentesDay(null,null)" title="Commissions des fiches de ventes (${esc(commissionRule())}), plafonnées au salaire maximum de chacun">+ ${fmtMoney(comm)}</button></span>` : manual}</td>
+    const tag = [comm ? 'commissions des ventes' : '', primes ? 'primes' : ''].filter(Boolean).join(' et ');
+    return `<tr${auto ? ' class="bar-row"' : ''}>
+      <td>${editStruct ? textInput(e.categorie, `updateExpenseCell('${week.id}',${i},'categorie',this.value)`, 190) : `<span class="strong">${esc(e.categorie)}</span>`}${auto ? `<span class="auto-tag">${icon('receipt', 'sm')}+ ${tag}${surplus ? ` · ${fmtMoney(surplus)} au-delà des max restent à la compta` : ''}</span>` : ''}</td>
+      <td class="num">${auto ? `<span class="auto-sum">${manual}<button class="bar-auto" type="button" onclick="document.getElementById('salSection')?.scrollIntoView({behavior:'smooth',block:'start'})" title="${comm ? `Commissions des fiches de ventes : ${esc(fmtMoney(comm))}` : ''}${comm && primes ? ' · ' : ''}${primes ? `Primes et salaires en plus : ${esc(fmtMoney(primes))}` : ''}">+ ${fmtMoney(auto)}</button></span>` : manual}</td>
       <td class="wrap-cell">${canFill ? `<input class="cell-in wide" type="text" value="${esc(e.observations || '')}" onchange="updateExpenseCell('${week.id}',${i},'observations',this.value)">` : esc(e.observations || '—')}</td>
       ${editStruct ? `<td><button class="icon-btn xs" type="button" onclick="removeExpenseRow('${week.id}',${i})" aria-label="Supprimer la ligne">${icon('x', 'sm')}</button></td>` : ''}
     </tr>`;
@@ -168,34 +175,50 @@ function renderExpenseTable(week, editStruct, canFill) {
     ${rows}<tr class="total"><td>Total charges</td><td class="num">${fmtMoney(total)}</td><td></td>${editStruct ? '<td></td>' : ''}</tr>
   </tbody></table></div></div>`;
 }
+/* Détail d'une commission : « Commission 35 % · 5 000 $ de ventes · 1/3 de 3 000 $ d'export · max atteint » */
+function commissionDetail(x) {
+  return `${x.total - x.export ? `Commission ${esc(x.taux)} · ${fmtMoney(x.total - x.export)} de ventes` : ''}${x.export ? `${x.total - x.export ? ' · ' : ''}${EXPORT_SHARE} de ${fmtMoney(x.export)} d'export` : ''}${x.surplus ? ` · <b>max ${fmtMoney(x.plafond)} atteint</b> : ${fmtMoney(x.surplus)} restent à la compta` : ''}`;
+}
 function renderSalaryTable(week, editStruct) {
   const list = week.salaries || [];
-  const comm = weekCommissionRows(week);
+  const payRows = weekPayRows(week);
   const pay = week.commissionPay || {};
-  const total = list.reduce((s, x) => s + (Number(x.montant) || 0), 0) + comm.reduce((s, x) => s + x.commission, 0);
-  // Commissions calculées depuis les fiches de ventes (seuls le versement et la validation se modifient)
-  const autoRows = comm.map((x) => {
+  const totComm = round2(payRows.reduce((s, x) => s + x.commission, 0));
+  const totPrime = round2(payRows.reduce((s, x) => s + x.prime, 0));
+  const totFree = list.reduce((s, x) => s + (Number(x.montant) || 0), 0);
+  const total = round2(totComm + totPrime + totFree);
+  // Une ligne par personne : commission (fiches de ventes, automatique) + prime / salaire en plus
+  const autoRows = payRows.map((x) => {
     const p = pay[x.userId] || {};
-    return `<tr class="bar-row">
-    <td><span class="strong">${esc(userLabel(x.userId))}</span></td>
-    <td>${x.total - x.export ? `Commission ${esc(x.taux)} · ${fmtMoney(x.total - x.export)} de ventes` : ''}${x.export ? `${x.total - x.export ? ' · ' : ''}${EXPORT_SHARE} de ${fmtMoney(x.export)} d'export` : ''}${x.surplus ? ` · <b>max ${fmtMoney(x.plafond)} atteint</b> : ${fmtMoney(x.surplus)} restent à la compta` : ''}<span class="auto-tag">${icon('receipt', 'sm')}Fiches de ventes</span></td>
-    <td class="num strong">${fmtMoney(x.commission)}</td>
+    const u = findUser(x.userId);
+    const motif = x.prime ? `<span class="prime-tag${p.primeFixe ? ' fixe' : ''}">${icon(p.primeFixe ? 'refresh' : 'star', 'sm')}${esc(p.primeMotif || 'Prime')}${p.primeFixe ? ' · chaque semaine' : ''}</span>` : '';
+    const primeCell = editStruct
+      ? `<button class="prime-btn${x.prime ? ' has' : ''}" type="button" onclick="openPrimeModal('${week.id}','${x.userId}')" aria-label="${x.prime ? 'Modifier la prime' : 'Ajouter une prime'} de ${esc(userLabel(x.userId))}">${x.prime ? '+ ' + fmtMoney(x.prime) : `${icon('plus', 'sm')}Prime`}</button>`
+      : (x.prime ? '+ ' + fmtMoney(x.prime) : '—');
+    return `<tr${x.comm ? ' class="bar-row"' : ''}>
+    <td><span class="strong">${esc(userLabel(x.userId))}</span>${u ? `<small class="muted sal-role">${esc(roleLabel(u))}</small>` : ''}</td>
+    <td>${x.comm ? `${commissionDetail(x.comm)}<span class="auto-tag">${icon('receipt', 'sm')}Fiches de ventes</span>` : '<span class="muted">Pas de ventes cette semaine</span>'}${motif}</td>
+    <td class="num">${x.comm ? fmtMoney(x.commission) : '—'}</td>
+    <td class="num">${primeCell}</td>
+    <td class="num strong">${fmtMoney(x.salaire)}</td>
     <td>${editStruct ? `<input class="cell-in" type="date" value="${esc(p.dateVersement || '')}" onchange="updateCommissionPay('${week.id}','${x.userId}','dateVersement',this.value)">` : (p.dateVersement ? fmtDateShort(p.dateVersement) : 'Non renseigné')}</td>
     <td>${editStruct ? `<input class="tick" type="checkbox" ${p.valide ? 'checked' : ''} onchange="updateCommissionPay('${week.id}','${x.userId}','valide',this.checked)" aria-label="Salaire validé">` : statusBadge(p.valide ? 'Validé' : 'À valider')}</td>
-    ${editStruct ? '<td></td>' : ''}
+    ${editStruct ? `<td>${x.prime ? `<button class="icon-btn xs" type="button" onclick="removePrime('${week.id}','${x.userId}')" aria-label="Retirer la prime" title="Retirer la prime">${icon('x', 'sm')}</button>` : ''}</td>` : ''}
   </tr>`;
   }).join('');
+  // Anciennes lignes libres (avant les primes du 23/11/2026) : gardées telles quelles
   const rows = autoRows + list.map((s, i) => `<tr>
     <td>${editStruct ? textInput(s.nom, `updateSalaryCell('${week.id}',${i},'nom',this.value)`, 170) : `<span class="strong">${esc(s.nom)}</span>`}</td>
-    <td>${editStruct ? textInput(s.poste, `updateSalaryCell('${week.id}',${i},'poste',this.value)`, 170) : esc(s.poste)}</td>
+    <td>${editStruct ? textInput(s.poste, `updateSalaryCell('${week.id}',${i},'poste',this.value)`, 170) : esc(s.poste)}<span class="auto-tag muted-tag">Ligne libre</span></td>
+    <td class="num">—</td><td class="num">—</td>
     <td class="num">${editStruct ? moneyInput(s.montant, `updateSalaryCell('${week.id}',${i},'montant',this.value)`) : fmtMoney(s.montant)}</td>
     <td>${editStruct ? `<input class="cell-in" type="date" value="${esc(s.dateVersement || '')}" onchange="updateSalaryCell('${week.id}',${i},'dateVersement',this.value)">` : (s.dateVersement ? fmtDateShort(s.dateVersement) : 'Non renseigné')}</td>
     <td>${editStruct ? `<input class="tick" type="checkbox" ${s.valide ? 'checked' : ''} onchange="updateSalaryCell('${week.id}',${i},'valide',this.checked)" aria-label="Salaire validé">` : statusBadge(s.valide ? 'Validé' : 'À valider')}</td>
     ${editStruct ? `<td><button class="icon-btn xs" type="button" onclick="removeSalaryRow('${week.id}',${i})" aria-label="Supprimer la ligne">${icon('x', 'sm')}</button></td>` : ''}
   </tr>`).join('');
-  return `<div class="card table-card"><div class="table-scroll"><table class="tbl"><thead><tr><th>Nom</th><th>Poste</th><th class="num">Salaire</th><th>Date de versement</th><th>Validé</th>${editStruct ? '<th></th>' : ''}</tr></thead><tbody>
-    ${rows || `<tr><td colspan="6" class="muted">Aucun salaire enregistré cette semaine.</td></tr>`}
-    <tr class="total"><td>Total salaires</td><td></td><td class="num">${fmtMoney(total)}</td><td></td><td></td>${editStruct ? '<td></td>' : ''}</tr>
+  return `<div class="card table-card"><div class="table-scroll"><table class="tbl sal-tbl"><thead><tr><th>Nom</th><th>Détail</th><th class="num">Commissions</th><th class="num">Prime / en plus</th><th class="num">Salaire</th><th>Date de versement</th><th>Validé</th>${editStruct ? '<th></th>' : ''}</tr></thead><tbody>
+    ${rows || `<tr><td colspan="${editStruct ? 8 : 7}" class="muted">Aucun salaire cette semaine.${editStruct ? ' Les commissions arrivent toutes seules avec les fiches de ventes ; « Prime / salaire en plus » pour payer quelqu\'un en plus.' : ''}</td></tr>`}
+    <tr class="total"><td>Total salaires</td><td></td><td class="num">${fmtMoney(totComm)}</td><td class="num">${totPrime ? '+ ' + fmtMoney(totPrime) : '—'}</td><td class="num">${fmtMoney(total)}</td><td></td><td></td>${editStruct ? '<td></td>' : ''}</tr>
   </tbody></table></div></div>`;
 }
 function renderMenuSales(week, editable) {
@@ -291,9 +314,72 @@ function updateCommissionPay(weekId, userId, field, value) {
   logActivity('Salaire modifié', `${userLabel(userId)} (commission) — Semaine ${w.numero}`);
   refresh();
 }
+/* ---------- Prime / salaire en plus (direction et comptabilité) ---------- */
+const PRIME_MOTIFS = ['Salaire fixe — gestion de l\'établissement', 'Prime de soirée', 'Prime exceptionnelle', 'Gestion de l\'équipe', 'Événement privé'];
+function primeCandidates() {
+  const order = [ROLES.DIRECTION, ROLES.SECRETAIRE, ROLES.MANAGER, ROLES.EMPLOYE];
+  return DB.users.filter((u) => u && u.statut === 'Actif' && order.includes(u.role))
+    .sort((a, b) => order.indexOf(a.role) - order.indexOf(b.role) || fullName(a).localeCompare(fullName(b)));
+}
+function openPrimeModal(weekId, userId) {
+  const w = weekById(weekId);
+  if (!w || !canEditFinance()) return;
+  const people = primeCandidates();
+  const cur = userId ? findUser(userId) : null;
+  if (cur && !people.includes(cur)) people.unshift(cur); // compte désactivé qui avait déjà une prime
+  if (!people.length) { toast('Aucun membre du staff actif.', 'error'); return; }
+  const first = cur || people.find((u) => u.role === ROLES.MANAGER && !primeOf(w, u.id)) || people[0];
+  const p = (w.commissionPay || {})[first.id] || {};
+  openModal(userId && primeOf(w, userId) ? 'Modifier la prime' : 'Prime / salaire en plus', `
+    <div class="field"><label for="prUser">Pour</label><select class="input" id="prUser" onchange="fillPrimeForm('${w.id}')" ${userId ? 'disabled' : ''}>${people.map((u) => `<option value="${u.id}" ${u.id === first.id ? 'selected' : ''}>${esc(fullName(u))} — ${esc(roleLabel(u))}${primeOf(w, u.id) ? ` (prime : ${esc(fmtMoney(primeOf(w, u.id)))})` : ''}</option>`).join('')}</select></div>
+    <div class="grid-2">
+      <div class="field"><label for="prAmount">Montant ($)</label><input class="input" id="prAmount" type="number" min="1" step="1" inputmode="decimal" value="${primeOf(w, first.id) || ''}" placeholder="ex : 3000"></div>
+      <div class="field"><label for="prMotif">Motif</label><input class="input" id="prMotif" maxlength="80" list="prMotifs" value="${esc(p.primeMotif || '')}" placeholder="ex : gestion de la soirée"><datalist id="prMotifs">${PRIME_MOTIFS.map((m) => `<option value="${esc(m)}"></option>`).join('')}</datalist></div>
+    </div>
+    <label class="check-row"><input class="tick" type="checkbox" id="prFixe" ${p.primeFixe ? 'checked' : ''}><span><b>Chaque semaine (salaire fixe)</b><small>Reconduite toute seule dans la semaine suivante, le lundi à 6h. Décochez ou retirez la prime pour arrêter.</small></span></label>
+    <p class="field-hint">Semaine ${w.numero} (${fmtDateShort(w.dateDebut)} → ${fmtDateShort(w.dateFin)}). La prime s'ajoute aux commissions des fiches de ventes, <b>sans salaire maximum</b>, et compte dans la charge « Salaires staff ». La personne la voit avec son salaire de la semaine.</p>`,
+    `<button class="btn btn-sm btn-ghost" type="button" data-close-modal>Annuler</button><button class="btn btn-sm btn-sun" type="button" onclick="savePrime('${w.id}')">Enregistrer</button>`);
+  setTimeout(() => { const el = document.getElementById('prAmount'); if (el) el.focus(); }, 60);
+}
+/* Changement de personne dans la fenêtre : reprend sa prime de la semaine s'il en a une */
+function fillPrimeForm(weekId) {
+  const w = weekById(weekId);
+  const id = document.getElementById('prUser').value;
+  const p = (w && w.commissionPay && w.commissionPay[id]) || {};
+  document.getElementById('prAmount').value = primeOf(w, id) || '';
+  document.getElementById('prMotif').value = p.primeMotif || '';
+  document.getElementById('prFixe').checked = !!p.primeFixe;
+}
+function savePrime(weekId) {
+  const w = weekById(weekId);
+  if (!w || !canEditFinance()) return;
+  const userId = document.getElementById('prUser').value;
+  const u = findUser(userId);
+  if (!u) { toast('Choisissez la personne.', 'error'); return; }
+  const montant = Math.round(Number(document.getElementById('prAmount').value) * 100) / 100;
+  if (!(montant > 0 && montant <= PRIME_MAX)) { toast('Indiquez le montant de la prime (en $).', 'error'); document.getElementById('prAmount').focus(); return; }
+  const motif = document.getElementById('prMotif').value.trim().slice(0, 80);
+  const fixe = document.getElementById('prFixe').checked;
+  const old = primeOf(w, userId);
+  w.commissionPay = w.commissionPay || {};
+  w.commissionPay[userId] = { ...(w.commissionPay[userId] || {}), prime: montant, primeMotif: motif, primeFixe: fixe };
+  logActivity(old ? 'Prime modifiée' : 'Prime ajoutée', `${fullName(u)} : ${fmtMoney(montant)}${motif ? ' — ' + motif : ''}${fixe ? ' (chaque semaine)' : ''} — Semaine ${w.numero}`);
+  toast(`${old ? 'Prime modifiée' : 'Prime ajoutée'} : ${fullName(u)} + ${fmtMoney(montant)}${fixe ? ', chaque semaine' : ''}.`, 'success');
+  closeModal(); refresh();
+}
+function removePrime(weekId, userId) {
+  const w = weekById(weekId);
+  if (!w || !canEditFinance() || !primeOf(w, userId)) return;
+  const p = w.commissionPay[userId];
+  confirmAction(`Retirer la prime de ${esc(userLabel(userId))} (${fmtMoney(primeOf(w, userId))}) pour la semaine ${w.numero} ?${p.primeFixe ? ' Elle ne sera plus reconduite les semaines suivantes.' : ''}`, () => {
+    const { prime, primeMotif, primeFixe, ...rest } = w.commissionPay[userId];
+    if (Object.keys(rest).length) w.commissionPay[userId] = rest; else delete w.commissionPay[userId];
+    logActivity('Prime retirée', `${userLabel(userId)} — Semaine ${w.numero}`);
+    toast('Prime retirée.', 'success'); refresh();
+  }, 'Retirer');
+}
 function addRevenueRow(weekId) { weekById(weekId).revenues.push({ categorie: 'Nouvelle catégorie', lun: 0, mar: 0, mer: 0, jeu: 0, ven: 0, sam: 0, dim: 0, autre: 0 }); saveSoon(); refresh(); }
 function addExpenseRow(weekId) { weekById(weekId).expenses.push({ categorie: 'Nouveau poste', montant: 0, observations: '' }); saveSoon(); refresh(); }
-function addSalaryRow(weekId) { const w = weekById(weekId); (w.salaries = w.salaries || []).push({ id: uid('sal'), nom: '', poste: '', montant: 0, dateVersement: '', valide: false }); saveSoon(); refresh(); }
 function removeRow(weekId, key, idx, label) {
   confirmAction(`Supprimer cette ligne (${label}) ?`, () => {
     weekById(weekId)[key].splice(idx, 1);
@@ -335,6 +421,8 @@ function createWeek() {
     id: uid('wk'), numero, dateDebut: document.getElementById('nWkStart').value, dateFin: document.getElementById('nWkEnd').value,
     soldePrecedent: Number(prevRaw) || 0, soldeAuto: prevRaw === '', statutValidation: 'À valider', valideParId: null, dateValidation: '',
     revenues: defaultRevenueRows(), expenses: defaultExpenseRows(), salaries: [], members: [], menuSales: {}, observations: '', documentSource: '',
+    // primes « chaque semaine » (salaires fixes) de la dernière semaine reconduites
+    commissionPay: carryPrimes([...DB.accountingWeeks].sort((a, b) => a.numero - b.numero).pop(), DB.users.filter((u) => u.statut === 'Actif').map((u) => u.id)),
   };
   DB.accountingWeeks.push(w);
   pickWeek(w.id);
@@ -374,17 +462,27 @@ function exportWeekCSV(weekId) {
   lines.push([q('TOTAL RECETTES'), '', '', '', '', '', '', '', '', t.recettes].join(';'));
   lines.push('');
   lines.push(['Poste de dépense', 'Montant', 'Observations'].map(q).join(';'));
-  w.expenses.forEach((e) => lines.push([q(e.categorie), expenseValue(w, e), q((isSalaryExpense(w, e) && weekCommissionTotal(w) ? `dont ${weekCommissionTotal(w)} $ de commissions des ventes${weekSurplusTotal(w) ? ` (plafonnées : ${weekSurplusTotal(w)} $ au-delà des salaires maximums restent à la compta)` : ''}. ` : '') + (e.observations || ''))].join(';')));
+  w.expenses.forEach((e) => {
+    const sal = isSalaryExpense(w, e);
+    const comm = sal ? weekCommissionTotal(w) : 0, primes = sal ? weekPrimeTotal(w) : 0;
+    const note = [comm ? `${comm} $ de commissions des ventes${weekSurplusTotal(w) ? ` (plafonnées : ${weekSurplusTotal(w)} $ au-delà des salaires maximums restent à la compta)` : ''}` : '', primes ? `${primes} $ de primes et salaires en plus` : ''].filter(Boolean).join(' + ');
+    lines.push([q(e.categorie), expenseValue(w, e), q((note ? `dont ${note}. ` : '') + (e.observations || ''))].join(';'));
+  });
   lines.push([q('TOTAL CHARGES'), t.charges].join(';'));
   lines.push('');
   lines.push([q('Solde précédent'), soldePrecedentOf(w)].join(';'));
   lines.push([q('Bénéfice net'), t.benefice].join(';'));
   lines.push([q('Nouveau solde'), t.nouveauSolde].join(';'));
   lines.push('');
-  lines.push(['Salarié', 'Poste', 'Salaire', 'Date de versement', 'Validé'].map(q).join(';'));
+  lines.push(['Salarié', 'Détail', 'Commissions', 'Prime / en plus', 'Motif de la prime', 'Salaire', 'Date de versement', 'Validé'].map(q).join(';'));
   const pay = w.commissionPay || {};
-  weekCommissionRows(w).forEach((x) => { const p = pay[x.userId] || {}; lines.push([q(userLabel(x.userId)), q(`Commission ${x.taux} sur ${x.total} $ de ventes${x.surplus ? ` (max ${x.plafond} $ atteint : ${x.surplus} $ restent à la compta)` : ''}`), x.commission, q(p.dateVersement), q(p.valide ? 'Oui' : 'Non')].join(';')); });
-  (w.salaries || []).forEach((s) => lines.push([q(s.nom), q(s.poste), Number(s.montant) || 0, q(s.dateVersement), q(s.valide ? 'Oui' : 'Non')].join(';')));
+  weekPayRows(w).forEach((x) => {
+    const p = pay[x.userId] || {};
+    const c = x.comm;
+    const detail = c ? `Commission ${c.taux} sur ${c.total - c.export} $ de ventes${c.export ? ` + ${EXPORT_SHARE} de ${c.export} $ d'export` : ''}${c.surplus ? ` (max ${c.plafond} $ atteint : ${c.surplus} $ restent à la compta)` : ''}` : 'Pas de ventes';
+    lines.push([q(userLabel(x.userId)), q(detail), x.commission, x.prime, q(x.prime ? (p.primeMotif || 'Prime') + (p.primeFixe ? ' (chaque semaine)' : '') : ''), x.salaire, q(p.dateVersement), q(p.valide ? 'Oui' : 'Non')].join(';'));
+  });
+  (w.salaries || []).forEach((s) => lines.push([q(s.nom), q(s.poste), '', '', '', Number(s.montant) || 0, q(s.dateVersement), q(s.valide ? 'Oui' : 'Non')].join(';')));
   // la liste des membres (qui a quelle carte VIP) est dans l'onglet Topo ; la recette des cartes reste dans « Cartes membres »
   const fiche = comptaSales(w).sort((a, b) => ((a.date || '') + (a.createdAt || '')).localeCompare((b.date || '') + (b.createdAt || '')));
   if (fiche.length) {

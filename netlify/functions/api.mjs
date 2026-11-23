@@ -373,8 +373,39 @@ const DAY_KEYS = ['lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'];
 const serviceDayParis = () => { const c = parisClock(); return c.min < 360 ? shiftISO(c.date, -1) : c.date; };
 const mondayISO = (iso) => shiftISO(iso, -((new Date(iso + 'T12:00:00Z').getUTCDay() + 6) % 7));
 const isDatedWeek = (w) => !!w && DATE_RE.test(w.dateDebut || '') && DATE_RE.test(w.dateFin || '');
+/* ---------------- Primes et salaires en plus (23/11/2026) ----------------
+   week.commissionPay[userId] = { dateVersement, valide, prime, primeMotif, primeFixe } : versement du salaire de la
+   semaine + prime / salaire en plus des commissions (direction et comptabilité seulement, sans maximum).
+   primeFixe : reconduite toute seule dans la semaine suivante (salaire fixe), pour les comptes encore actifs. */
+const PRIME_MAX = 1000000;
+function cleanPay(cp) {
+  const out = {};
+  if (!cp || typeof cp !== 'object' || Array.isArray(cp)) return out;
+  for (const [id, p] of Object.entries(cp).slice(0, 500)) {
+    if (!id || id.length > 60 || !p || typeof p !== 'object') continue;
+    const o = {};
+    if (DATE_RE.test(p.dateVersement || '')) o.dateVersement = p.dateVersement;
+    if (p.valide) o.valide = true;
+    const prime = Math.round(Math.min(Math.max(Number(p.prime) || 0, 0), PRIME_MAX) * 100) / 100;
+    if (prime > 0) {
+      o.prime = prime;
+      const motif = clean(p.primeMotif, 80);
+      if (motif) o.primeMotif = motif;
+      if (p.primeFixe) o.primeFixe = true;
+    }
+    if (Object.keys(o).length) out[id] = o;
+  }
+  return out;
+}
+function carryPrimes(prev, activeIds) {
+  const out = {};
+  for (const [id, p] of Object.entries(cleanPay(prev && prev.commissionPay))) {
+    if (p.prime && p.primeFixe && (!activeIds || activeIds.includes(id))) out[id] = { prime: p.prime, ...(p.primeMotif ? { primeMotif: p.primeMotif } : {}), primeFixe: true };
+  }
+  return out;
+}
 /* Semaines à créer pour que la journée `today` ait sa semaine (aucune si elle en a déjà une) */
-function weeksToCreate(weeks, today) {
+function weeksToCreate(weeks, today, activeIds) {
   const dated = weeks.filter(isDatedWeek);
   if (dated.some((w) => w.dateDebut <= today && today <= w.dateFin)) return [];
   const before = dated.filter((w) => w.dateFin < today).sort((a, b) => a.dateFin.localeCompare(b.dateFin));
@@ -386,6 +417,7 @@ function weeksToCreate(weeks, today) {
   const revRows = prev && Array.isArray(prev.revenues) && prev.revenues.length ? prev.revenues.map((r) => clean(r && r.categorie, 80)).filter(Boolean) : REVENUE_CATS;
   const expRows = prev && Array.isArray(prev.expenses) && prev.expenses.length ? prev.expenses.map((e) => clean(e && e.categorie, 80)).filter(Boolean) : EXPENSE_CATS;
   let num = weeks.reduce((m, w) => Math.max(m, Number(w && w.numero) || 0), 0);
+  const primes = carryPrimes(prev, activeIds); // salaires fixes (primes « chaque semaine ») reconduits
   const out = [];
   while (start <= today && out.length < 60) {
     let end = shiftISO(mondayISO(start), 6); // jusqu'au dimanche
@@ -396,6 +428,7 @@ function weeksToCreate(weeks, today) {
       revenues: revRows.map((c) => ({ categorie: c, ...Object.fromEntries(DAY_KEYS.map((k) => [k, 0])), autre: 0 })),
       expenses: expRows.map((c) => ({ categorie: c, montant: 0, observations: '' })),
       salaries: [], members: [], menuSales: {}, observations: '', documentSource: '',
+      commissionPay: JSON.parse(JSON.stringify(primes)),
     });
     start = shiftISO(end, 1);
   }
@@ -405,8 +438,8 @@ async function ensureWeeks(store, meta) {
   meta = meta || await readMeta(store);
   const today = serviceDayParis();
   if (!meta.initialized || (meta.weeksUntil && meta.weeksUntil >= today)) return meta;
-  const weeks = await col(store, 'accountingWeeks');
-  const add = weeksToCreate(weeks, today);
+  const [weeks, users] = await Promise.all([col(store, 'accountingWeeks'), col(store, 'users')]);
+  const add = weeksToCreate(weeks, today, users.filter((u) => u && u.statut === 'Actif').map((u) => u.id));
   if (add.length) {
     weeks.push(...add);
     await putCol(store, 'accountingWeeks', weeks);
@@ -718,6 +751,17 @@ async function routeSync(req, store, a) {
           // grade (employés seulement, fixe la commission) : choisi par la direction, effacé pour les autres rôles
           list[i].grade = validGrade(list[i].role, D && rec.grade !== undefined ? rec.grade : cur.grade);
           continue;
+        }
+        if (name === 'accountingWeeks') {
+          const cur = i !== undefined ? list[i] : null;
+          if (D || S) rec.commissionPay = cleanPay(rec.commissionPay);
+          else {
+            // managers : ils remplissent les montants, mais les salaires, primes, versements et la validation
+            // restent ceux de la direction et de la comptabilité
+            rec.commissionPay = cur ? cur.commissionPay || {} : {};
+            rec.salaries = cur ? cur.salaries || [] : [];
+            for (const k of ['statutValidation', 'valideParId', 'dateValidation']) rec[k] = cur ? cur[k] : (k === 'statutValidation' ? 'À valider' : k === 'valideParId' ? null : '');
+          }
         }
         if (name === 'activityLogs') { if (i === undefined) { list.push(rec); index.set(rec.id, list.length - 1); } continue; }
         if (i === undefined) { list.push(rec); index.set(rec.id, list.length - 1); } else list[i] = rec;
